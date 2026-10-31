@@ -1,256 +1,197 @@
 # dsh-mail-automation
 
-A DeepSeek Harness (DSH) plugin that automates mailboxes: it polls your mail, archives each new message locally, hands
-it to a **restricted sub-agent** that reads it and writes a conclusion, and runs **any number of scheduled agent
-tasks** — daily / weekly / monthly / fixed-interval / on-startup, each with its own prompt.
+简体中文 · [English](README-en.md)
 
-## What it is: a default control flow, not a fixed product
+DeepSeek Harness（DSH）插件：把收件箱变成自动化流程——轮询邮箱（IMAP / POP3 / OAuth2 / Gmail API / Graph），
+每封新邮件落成本地存档，交给一个**受限子智能体**读并写结论；另外可以配置**任意数量的定时任务**
+（每日 / 每周 / 每月 / 固定间隔 / 启动时），每条任务有自己的提示词。
 
-Out of the box the plugin wires two things:
+## 它是什么：默认控制流，不是固定产品
 
-1. **poll + archive** every configured mailbox (IMAP / POP3 / OAuth2-IMAP / Gmail API / Microsoft Graph);
-2. **one turn per mail** — the archived message is handed to a scoped sub-agent with a prompt, and the answer becomes
-   `conclusion.md`.
+开箱即用的链路只有两步：
 
-Scheduled tasks are explicit: add them under `schedules:` and give each one a `prompt_file`. A digest task can list the
-archive with `mail_automation_archive_list`, write the summary, **send it to QQ itself** with `qq_notify`, then clear
-the archive with `mail_automation_archive_clear`.
+1. **轮询 + 落档**：把配置的邮箱新邮件存到本地 `archive/`；
+2. **每封邮件一个回合**：把存档交给带提示词的受限子智能体，结论写成 `conclusion.md`。
 
-The QQ notification and the digest are only a **common control flow**. None of it is hard-wired:
+**定时任务必须显式配置**：在 `schedules:` 里给每条任务写 `prompt_file`。一条总览任务可以读存档、写总览，然后
+**自己调 `qq_notify`** 发到 QQ，再调 `archive_clear` 清理。
 
-- add, remove or edit **scheduled tasks** (Settings → Mail Assistant → Schedules, or `schedules:` in the YAML
-  overlay) — each task has its own schedule (daily at several times, weekly on several weekdays, monthly on several
-  days, every N minutes, or once per startup) and its own `prompt_file`;
-- change the **prompts** (Settings → Prompts for mail/html, Settings → Schedules for every task) — a task prompt can
-  ask for anything (summarise, remind, draft, call other tools, …);
-- change **`agent.tools`** and install other DSH plugins/tools; the per-mail sub-agent and the scheduled task get
-  exactly the tools you list (for example `fs`, `search`, `web`, `skill`, `todo`), so they can write files, query the
-  web, or call your own plugin;
-- change or remove the **delivery**: the plugin no longer posts to QQ by itself. Every send is an agent tool call
-  (`qq_notify`) driven by your prompt — drop it from the prompt and nothing is sent; `qq.enabled: false` still
-  disables the tool. `archive/` + `conclusion.md` are plain files you can consume yourself.
+**QQ 提醒和总览只是常见控制流**，没有一处是写死的：
 
-In short: **“QQ reminder + digest” is just “process a mail” + “one scheduled task whose prompt sends QQ”**. The
-reusable pieces are mailbox polling, local archives, the scoped agent turn, and the scheduler; the rest (prompts,
-tools, delivery, downstream automation) is yours to replace.
+- **定时任务可加可删**（设置页「定时任务」或 YAML 的 `schedules:`）：每日多个时刻、每周多天、每月多天、
+  每 N 分钟、每次启动；每条任务有自己的 `prompt_file`；
+- **提示词可换**（设置页「提示词」/「定时任务」或 `prompt.file` / `prompt.html_file`）：可以让它分类、抽取、起草回复、调用别的工具，而不只是“总结”；
+- **工具可换**（`agent.tools`）：安装其他 DSH 插件/工具（`fs`、`search`、`web`、`skill`、`todo` 等），子智能体就能写文件、查网页、调用你自己的插件；
+- **投递可换/可关**：插件不再内置推送；每次发送都是提示词里的一次 `qq_notify` 工具调用。`archive/` 和
+  `conclusion.md` 就是普通文件，可以自己消费。
 
-- Five source protocols behind one provider contract: **IMAP** (`imapflow`), **POP3** (built-in client), **OAuth2 (IMAP +
-  XOAUTH2)** for Microsoft 365/Outlook (device-code login), **Gmail API** and **Microsoft Graph** (both OAuth, bound from
-  the settings page)
-- Add / edit / delete mailboxes from **Settings → Mail Assistant → Mailboxes** (written to the YAML overlay, validated
-  with the same `normalizeConfig` as startup)
-- OAuth binding: Gmail (loopback callback + manual code fallback) and Microsoft Graph (device code); QQ official bot
-  binding by **QR code** (writes AppID/openid to YAML, AppID/secret to `ctx.credentials`)
-- One archive folder per mail: raw message, HTML, text, preview image, `conclusion.md`
-- Per-mail sub-agent with a minimal preset (no shell, no file writes) — see `agent.preset`
-- Arbitrary scheduled tasks: daily (multiple times) / weekly (multiple weekdays) / monthly (multiple days, month-end
-  clamping) / fixed interval / once per startup — each with its own prompt; QQ is sent by the agent via `qq_notify`
-- Settings page can pick the **model / reasoning effort / tool set** of the per-mail sub-agent, and tune the **HTML preview renderer**
-- Settings page inside DSH (overview / archived / mailboxes / schedules / prompts / settings / guide) that rewrites the YAML
-  overlay in place
+一句话：**「QQ 提醒 + 总览」本质上只是「处理一封邮件」+「一个提示词里会发 QQ 的定时任务」**。可复用的是轮询、本地存档、受限 agent 回合和调度器；提示词、工具、投递和下游自动化都可以换成你自己的。
 
-## Requirements
+- 来源：IMAP（`imapflow`）、POP3（内置客户端）、OAuth2（IMAP）、Gmail API 与 Microsoft Graph（OAuth，设置页里授权/扫码绑定）
+- 一封邮件一个存档目录：原始报文、HTML、纯文本、预览图、`conclusion.md`
+- 每封邮件跑在极简预设的子智能体里（没有 shell、不能写文件）——见 `agent.preset`
+- 任意数量的定时任务（每日多时刻 / 每周多天 / 每月多天 / 固定间隔 / 启动时），每条一个提示词；QQ 由 agent 自己发
+- 设置页可调邮件子 agent 的**模型 / 思考强度 / 工具集**，以及 **HTML 预览图渲染**参数
+- 五种协议已全部实现（IMAP / POP3 / **OAuth2（IMAP）** / Gmail API / Microsoft Graph）；支持在设置页**添加/编辑/删除多个邮箱**，以及 QQ 官方机器人的**二维码绑定**
+- DSH 内的设置页（概览 / 已存档 / 邮箱 / 定时任务 / 提示词 / 参数 / 指南），保存时就地改写 YAML 覆盖层
+
+## 环境要求
 
 - Node `^22.19.0 || >=24.0.0`
-- DSH `0.1.2-rc.1` … `0.2.x` — the exact peer ranges of `@deepseek-ai/dsh-llm|session|tools|storage-domain|brand` are in
-  `package.json`. A host outside them **rejects the install** (`dsh plugin add` enforces peers).
-- For HTML preview images: a Chromium-based browser (Edge/Chrome). On non-Windows set `render.browser` explicitly.
-- For QQ: a QQ official-bot `appId` / `appSecret` and the recipient `openid`.
+- DSH `0.1.2-rc.1` … `0.2.x`——`@deepseek-ai/dsh-llm|session|tools|storage-domain|brand` 的精确 peer 范围见
+  `package.json`。宿主不在范围内会**直接拒绝安装**（`dsh plugin add` 会校验 peer）。
+- HTML 邮件预览图需要 Chromium 内核浏览器（Edge/Chrome）；非 Windows 请显式配 `render.browser`。
+- QQ 推送需要 QQ 官方机器人的 `appId` / `appSecret` 与接收人 `openid`。
 
-## Install
+## 安装
 
-Two shapes work; pick by how you ship:
+几种装法都能用，选一种：
 
-**Link install** (what the plugin page's "install from local folder" produces on Windows: a junction).
-The checkout *is* the installed copy, so editing it and restarting DSH is enough:
-
-```powershell
-# in the DSH desktop app: Settings → Plugins → install from local folder → pick this directory
-# then restart DSH
-```
-
-**Copy install** (`file:` or a packed tarball). The profile holds a copy, so sync after editing:
+**npm 安装**（发布后）：
 
 ```powershell
-node sync.mjs      # copy src/ client.js skills/ scripts/ locale/ docs/ into the profile install
-# then restart DSH
+dsh plugin add dsh-mail-automation
 ```
 
-Measured on dsh `0.2.1-rc.3`: a link install still resolves `@deepseek-ai/*` (the plugin log shows `schema=bare-import`).
-The plugin writes nothing into the profile. Note that the **`desktop` profile can only be reinstalled from the in-app
-plugin page** — the CLI refuses it (`profile "desktop" is managed exclusively by the Electron application`).
+**链接安装**（Windows 上就是 junction，插件页「从本地目录安装」给的是这种）。本仓库**就是**安装副本，
+改完源码重启 DSH 即可：
 
-## Configure
+```powershell
+# 在 DSH 桌面端：设置 → 插件 → 从本地目录安装 → 选中本目录
+# 然后重启 DSH
+```
 
-Three layers, later wins:
+**拷贝安装**（`file:` 或 `npm pack` 出的 tarball）。profile 里是副本，改完必须同步：
 
-1. `cordis.patch.yml` → the `mail-automation` row's `config` (Schemastery-validated; override it per profile)
-2. the YAML overlay at `configFile` — default `$DSH_HOME/mail-automation/mail-automation.yaml`, re-read on every poll
-3. built-in defaults in `src/defaults.js`
+```powershell
+node sync.mjs      # 把 src/ client.js skills/ scripts/ locale/ docs/ 同步进 profile 安装副本
+# 然后重启 DSH
+```
 
-Only the overlay is meant for day-to-day edits: save the file and it applies on the next tick (prompts apply on the next
-mail). `poll_seconds` is volatile; `schedules` is re-armed on the next heartbeat when it changes, so neither needs a
-plugin reload. Full field tables: [docs/configuration.md](docs/configuration.md).
+实测 dsh `0.2.1-rc.3`：链接安装下 `@deepseek-ai/*` 照样解析（插件日志里是 `schema=bare-import`）。
+插件**不往 profile 里写任何文件**。注意 **desktop profile 只能在应用内插件页重装**——`dsh` CLI 会拒绝它
+（`profile "desktop" is managed exclusively by the Electron application`）。
 
-Credentials never go in the YAML if you can avoid it. Use references instead:
+## 配置
+
+三层配置，后层覆盖前层：
+
+1. `cordis.patch.yml` → `mail-automation` 那一行的 `config`（Schemastery 校验；profile 层可按 id 覆盖）
+2. `configFile` 指向的 YAML 覆盖层——默认 `$DSH_HOME/mail-automation/mail-automation.yaml`，每轮轮询重读
+3. `src/defaults.js` 里的内置默认值
+
+日常只改覆盖层：保存后下一拍生效（提示词下一次处理/任务触发时生效）。`poll_seconds` 是 volatile；
+`schedules` 变化会在下一次心跳自动重排，都不用重载插件。完整字段表见 [docs/configuration.md](docs/configuration.md)。
+
+凭据尽量别写进 YAML，用引用：
 
 ```yaml
 sources:
   - id: private
-    name: Private
+    name: 私人邮箱
     type: imap
     host: imap.qq.com
     user: me@qq.com
-    password_ref: MAIL_PRIVATE_PASSWORD   # resolved through ctx.credentials
-  - id: old-pop3
-    name: Old mailbox
-    type: pop3                     # pop.qq.com / pop.163.com … inferred from provider or domain
-    provider: qq
-    user: me@qq.com
-    password_ref: MAIL_PRIVATE_PASSWORD
-  - id: gmail-main
-    name: Gmail
-    type: gmail
-    user: me@gmail.com
-    client_id: <oauth desktop-app client id>
-    client_secret_ref: GMAIL_CLIENT_SECRET
-    # token file defaults to $DSH_HOME/mail-automation/tokens/gmail-me@gmail.com.json
+    password_ref: MAIL_PRIVATE_PASSWORD   # 经 ctx.credentials 解析
 schedules:
   - id: digest
-    name: Mail digest
+    name: 邮件总览
     schedule:
       type: daily                    # daily / weekly / monthly / interval / startup
-      times: ["12:00", "21:00"]      # two runs per day
+      times: ["12:00", "21:00"]
     prompt_file: prompt/digest-prompt.md
-  - id: friday
-    name: Friday reminder
-    schedule:
-      type: weekly
-      weekdays: [3, 5]               # ISO: 1=Mon … 7=Sun
-      times: ["15:00"]
-    prompt_file: prompt/friday-prompt.md
   - id: boot
-    name: Startup snapshot
+    name: 启动快照
     schedule:
-      type: startup                  # once per plugin start, after the baseline
+      type: startup                  # 每次启动、基线完成后运行一次
     prompt_file: prompt/boot-prompt.md
 qq:
   enabled: true
-  openid: <recipient openid>               # appId/appSecret default to QQ_BOT_APP_ID / QQ_BOT_SECRET refs
+  openid: <接收人 openid>                 # appId/appSecret 默认解析 QQ_BOT_APP_ID / QQ_BOT_SECRET
 ```
 
-All user prompts live in `$DSH_HOME/mail-automation/prompt/` (`prompt.md`, `prompt-html.md`, and one
-`<task-id>-prompt.md` per scheduled task). For a scheduled task, leave `prompt_file` empty in the settings form and
-the plugin creates `prompt/<id>-prompt.md` for you; an explicit `prompt_file` is still respected. The prompt body is required either way.
+## 快速开始
 
-Bind from the UI instead of hand-writing tokens: **Settings → Mail Assistant → Mailboxes** has *Add mailbox*, a
-*Bind* button per Gmail/Graph row, and *Scan to bind QQ bot*. The binding writes the token file (mode 0600, atomic)
-and, for QQ, `qq.app_id` / `qq.openid`; `QQ_BOT_APP_ID` / `QQ_BOT_SECRET` also go to `ctx.credentials` so other QQ plugins can reuse them.
+1. 按上面的方式安装并重启 DSH。
+2. 写一份最小覆盖层（一个来源 + 你的 `openid`）到 `$DSH_HOME/mail-automation/mail-automation.yaml`。
+3. 把 `MAIL_PRIVATE_PASSWORD`（以及可选的 `QQ_BOT_APP_ID` / `QQ_BOT_SECRET`）写进凭据页，或
+   `$DSH_HOME/.credentials.yaml` 的 `refs:` 块。
+4. 重启 DSH，看 `$DSH_HOME/mail-automation/mail-automation.log` 里有没有
+   `插件加载 … schema=bare-import` 与 `已注册工具：qq_notify / …`。
+5. 打开**设置 → 邮件助理**：应能看到来源、游标，以及 `startup.md` 里最新的 10 条邮件头。
 
-## Quick start
+## 工具
 
-1. Install as above and restart DSH.
-2. Write a minimal overlay (one source + your `openid`) to `$DSH_HOME/mail-automation/mail-automation.yaml`.
-3. Store `MAIL_PRIVATE_PASSWORD` (and optionally `QQ_BOT_APP_ID` / `QQ_BOT_SECRET`) in the credentials page or
-   `$DSH_HOME/.credentials.yaml` under `refs:`.
-4. Restart DSH and check `$DSH_HOME/mail-automation/mail-automation.log` for
-   `插件加载 … schema=bare-import` and `已注册工具：qq_notify / …`.
-5. Open **Settings → 邮件助理**: you should see the sources, their cursors and the latest 10 headers in `startup.md`.
-
-## Tools
-
-| Tool | Purpose |
+| 工具 | 作用 |
 |---|---|
-| `qq_notify` | Send a QQ message through the official bot |
-| `mail_automation_archive_read` | Read **one** archived mail only (`text` / `html` / `image` / `raw` / `conclusion` / `meta`) |
-| `mail_automation_archive_list` | List all archived mails (or given ids); optionally attach subject / date / from / to / conclusion.md |
-| `mail_automation_archive_clear` | Delete all archives, or only the given id list (destructive) |
-| `mail_automation_status` | Poll interval, scheduled tasks, per-source cursors, archived count |
-| `mail_automation_poll` | Run one polling cycle now (also clears a stuck cycle) |
-| `mail_automation_config` | Same operations as the settings page: read / save params / save prompts / retry failed / retry poll |
+| `qq_notify` | 通过 QQ 官方机器人发一条消息 |
+| `mail_automation_archive_read` | 只读**单封本地存档**（`text` / `html` / `image` / `raw` / `conclusion` / `meta`） |
+| `mail_automation_archive_list` | 批量列存档（或指定 id），按需附加标题/时间/发件人/收件人/conclusion.md |
+| `mail_automation_archive_clear` | 清理全部存档，或只清理给定的 id 列表（破坏性） |
+| `mail_automation_status` | 轮询间隔、各定时任务、各来源游标、已存档数量 |
+| `mail_automation_poll` | 立刻跑一轮（顺带解开卡住的那一轮） |
+| `mail_automation_config` | 与设置页同一套操作：read / save_params / save_prompts / retry_failed / retry_poll |
 
-The two archive skills (`mail-automation-archive-batch` / `mail-automation-archive-clear`) are registered for the
-agent and the two tools are part of the default `agent.tools`.
+两个存档 skill（`mail-automation-archive-batch` / `mail-automation-archive-clear`）会注册给 agent，两个批量工具默认在
+`agent.tools` 里。
 
-## Settings page
+参数、返回值与 HTTP 接口见 [docs/api.md](docs/api.md)。
 
-**Settings → 邮件助理** has seven tabs: **Overview** (state, last/next scheduled task, backend, config path, per-source
-cursors, "retry now"), **Archived** (mails saved locally, with ✓ / failed / processing badges; each mail has a
-two-step "delete" button, "retry failed" sits top-right, and each scheduled task has its own "run now"), **Mailboxes** (QQ QR binding, mailbox list with
-bind/test/delete, add/edit
-form), **Schedules** (add/edit/delete any number of tasks, each with its own schedule and prompt, run one now),
-**Prompts** (the mail / HTML prompt files under `prompt/`), **Settings** (poll/heartbeat/
-headers, silent mode and the agent workspace, plus the mail model / reasoning effort / tool set), **Guide** (available
-variables, comment syntax, internal skills and how to make the model load them). Saving rewrites only
-the changed scalars in the YAML (comments preserved) — except the task list, which is written as a whole array — and
-revalidates the whole table before writing.
+## 设置页
 
-## Common pitfalls
+**设置 → 邮件助理** 有七个页签：**概览**（状态、上次/下次定时任务、状态后端、配置路径、各来源游标、「立即重试」）、
+**已存档**（已保存在本地的邮件，带 ✓ / 失败 / 处理中 徽标；每封有「删除」按钮，第一次点变「确认删除」；「重试失败邮件」在块右上角）、
+**邮箱**、**定时任务**（任意数量任务，各自排期与提示词，可立即运行）、**提示词**（普通/HTML 提示词，均在 `prompt/` 目录）、
+**参数**（轮询/心跳/快照条数、静默模式、agent 工作区，以及邮件模型 / 思考强度 / 工具集）、
+**指南**（可用变量、注释语法、内部 skill 的功能与调用方法）。
+保存只就地改写 YAML 里改动的标量（保留注释），写前做整表校验；定时任务按整份数组写入并校验。
 
-- **No polling at all** → the config has no `sources`, or `configFile` points at a missing file (the log names the path).
-- **Nothing archived** → `password_ref` did not resolve (empty credentials are never treated as configured), or the IMAP
-  `STATUS` reply was unusable (the plugin skips the tick and keeps the cursor).
-- **POP3 misses mail** → POP3 has no `UIDVALIDITY`/`UIDNEXT`; the cursor is a set of `UIDL`s. If another client downloads
-  and deletes mail before this plugin polls it, that mail is permanently missed (protocol limit). Servers without `UIDL`
-  are rejected with an explicit error — use IMAP there.
-- **Gmail source fails** → the token file is missing/expired: bind again from **Mailboxes**. A stale `historyId` (404) makes
-  the plugin rebuild the baseline (it will not replay history). `seenIds` deduplicates.
-- **Graph source fails** → the token file is missing or lacks `Mail.Read`; re-bind. A device-code app registration must
-  allow public clients.
-- **QR binding does not start** → `q.qq.com` refuses the request (endpoint/anti-bot change). Fall back to the manual
-  AppID / openid / appSecret fields in the same card.
-- **Every mail fails** → check `conclusion.md` for `（agent 处理失败：…）`; if the parent session could not be primed or the
-  sub-agent was blocked by `agent/pre-step`, the log says so. A broken `mail-automation-agent` preset only costs tokens —
-  it falls back to the deployment default.
-- **No preview image** → Edge/Chrome not found; set `render.browser`. `render.remote_images: false` also strips remote
-  images/styles (avoids tracking pixels).
-- **A scheduled task did not run** → invalid `schedules` entry (the Overview tab keeps showing the config error), or
-  the task is disabled. The log line `下次定时任务：…` names the next one; `mail_automation_status` lists every task.
-- **The digest ran but QQ got nothing** → check the task prompt (it must call `qq_notify`) and the agent's child
-  session. The plugin no longer patches prompts at runtime.
-- **Digest sent but archives kept** → the agent turn failed or the agent reported `（QQ 发送失败：…）`. The task prompt
-  must call `archive_clear` after a successful send; all cases are logged with `[schedule:<id>]`.
-- **Startup task runs on every restart but not on a hot reload** → by design: the startup slot is claimed once per
-  process; a plugin reload inside the same process is not a new start. A startup task added/edited while running is
-  marked "Next startup" and runs only on the next DSH start.
-- **Settings page 404 / blank** → `webServer` missing or the route is owned by another instance; the plugin only warns,
-  mail handling is unaffected.
-- **Upgrading to 0.8.0**: this is a breaking cleanup. `digest.*`, `schedules[].prompt` (inline), `prompt.inline`,
-  `kind` / `consume_archive`, legacy Graph token migration, legacy source-id cursor adoption, old prompt-file copies
-  and the `mail_automation_digest` tool are all gone. Configure every task explicitly in `schedules` with a
-  `prompt_file`; prompt files live under `prompt/`; Graph always uses a per-source token file
-  (`tokens/graph-<id>.json`, no folder suffix). An auto-derived Graph source id is `graph-<clientId>`
-  (`graph-mailbox` when no client id); give the source an explicit `id` if you need a stable key.
-- **POP3 `UIDL` unsupported** → the source fails with an explicit error; use IMAP for that mailbox (POP3 cannot do
-  reliable incremental sync without UIDL).
+## 常见问题
 
-## Tests
+- **完全不轮询** → 配置里没有 `sources`，或 `configFile` 指向不存在的文件（日志会点名路径）。
+- **没有存档** → `password_ref` 没解析到（空凭据永远不算已配置），或 IMAP `STATUS` 返回不可用（本轮跳过、游标不动）。
+- **每封都失败** → 看 `conclusion.md` 里的 `（agent 处理失败：…）`；父会话 priming 失败或子会话被 `agent/pre-step` 拒时日志会说。
+  `mail-automation-agent` 预设有问题只损失省 token，会自动退回部署默认。
+- **没有预览图** → 找不到 Edge/Chrome，配 `render.browser`；`render.remote_images: false` 还会挡掉远程图片/样式（防追踪像素）。
+- **总览没跑** → `schedules` 里有非法条目（概览页会显示配置错误），或任务被禁用；日志里的
+  `下次定时任务：…` 会点名下一条，`mail_automation_status` 会列出全部任务。
+- **总览跑了但 QQ 没收到** → 看任务提示词有没有调 `qq_notify`，以及对应子会话的报错。插件不再代发、也不在运行时改提示词。
+- **总览跑了但没清存档** → agent 回合失败，或 agent 报告了 `（QQ 发送失败：…）`。任务提示词需要 agent 在发送成功后自己调
+  `archive_clear`。日志里都会带 `[schedule:<id>]`。
+- **启动任务每次重启都跑、热重载不跑** → 这是设计：启动任务的槽每个进程只认领一次，同进程里的插件重载不算新启动。运行中新增/编辑的 `startup` 任务保存后显示「下次启动」，不会立刻执行。
+- **设置页 404 / 空白** → `webServer` 缺失或路由被别的实例占用；插件只 WARN，不影响邮件处理。
+- **从 0.7 升到 0.8（破坏性清理）**：`digest.*`、`schedules[].prompt` 内联、`prompt.inline`、`kind` /
+  `consume_archive`、旧 Graph 令牌迁移、旧来源 id 游标沿用、旧提示词复制/注释剥离/skill 名改写、
+  `mail_automation_digest` 工具全部删除。每条任务必须在 `schedules` 里显式写 `prompt_file`；提示词放 `prompt/`；
+  Graph 使用按来源生成的令牌文件（`tokens/graph-<id>.json`，不再带文件夹后缀）。
+  Graph 自动来源 id 为 `graph-<clientId>`（没有 clientId 时 `graph-mailbox`）；需要稳定键请显式写 `id`。
+
+## 测试
 
 ```powershell
-node test\entry.test.mjs     # 92 checks: contract, registration order, teardown, credentials, settings params, schedules
-node test\issues.test.mjs    # 22 checks: current config, archive tools, snapshot and client invariants
-node test\harness.mjs        # end-to-end with a fake ctx (needs a real mailbox config)
-node src\cli.js config       # resolved config with secrets masked
+node test\entry.test.mjs     # 92 项：契约、注册顺序、卸载、凭据、设置页参数、定时任务
+node test\issues.test.mjs    # 22 项：当前配置、存档工具、快照、前端不变量、收信与保存回归
+node test\harness.mjs        # 假 ctx 跑整链（需要真实邮箱配置）
+node src\cli.js config       # 打印解析后的配置（密码脱敏）
 ```
 
-## Docs
+## 文档
 
-- [docs/architecture.md](docs/architecture.md) — lifecycle, modules, a mail's life, concurrency, agent model, persistence
-- [docs/configuration.md](docs/configuration.md) — every field, path expansion, volatile fields, known limits
-- [docs/api.md](docs/api.md) — tools, skills, settings HTTP API, CLI
-- [docs/operations.md](docs/operations.md) — install shapes, file locations, verification, troubleshooting, rollback
-- [docs/lessons.md](docs/lessons.md) — hard-won runtime semantics the plugin guide does not cover
-- [docs/development.md](docs/development.md) — change discipline, defect ledger, check/doctor results
-- [docs/multi-source.md](docs/multi-source.md) — adding POP3 / Gmail API / Graph delta: provider contract, pitfalls, order of work
+- [docs/architecture.md](docs/architecture.md) —— 生命周期、模块、一封邮件的一生、并发、agent 模型、持久化
+- [docs/configuration.md](docs/configuration.md) —— 全部字段、路径展开、volatile、已知边界
+- [docs/api.md](docs/api.md) —— 工具、技能、设置页 HTTP 接口、CLI
+- [docs/operations.md](docs/operations.md) —— 装法、文件位置、验证、故障定位、回滚
+- [docs/lessons.md](docs/lessons.md) —— 指南没覆盖的运行语义（上一任经验）
+- [docs/development.md](docs/development.md) —— 变更纪律、缺陷台账、check/doctor 结果
+- [docs/multi-source.md](docs/multi-source.md) —— 新增 POP3 / Gmail API / Graph delta：provider 契约、坑与实施顺序
 
-## Boundaries
+## 边界
 
-- Read-only towards the mailbox: never marks read, moves, or deletes mail on the server (POP3 `RETR` is a download; the
-  plugin never sends `DELE`).
-- Watches the configured folders only; never sends bulk mail.
-- Agent work is serialised: one mail or one scheduled task at a time.
-- Mailbox failures are logged, never thrown into the host.
+- 对邮箱只读：不标已读、不移动、不删除服务器上的邮件。
+- 只监控配置的文件夹，不做群发。
+- agent 处理串行：一封邮件或一个定时任务跑完再跑下一个。
+- 邮箱侧异常只写日志，不抛给宿主。
 
-## License
+## 许可证
 
-MIT — see [LICENSE](LICENSE).
+MIT —— 见 [LICENSE](LICENSE)。
