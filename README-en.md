@@ -6,27 +6,6 @@ A DeepSeek Harness (DSH) plugin that automates mailboxes: it polls your mail, ar
 it to a **restricted sub-agent** that reads it and writes a conclusion, and runs **any number of scheduled agent
 tasks** — daily / weekly / monthly / fixed-interval / on-startup, each with its own prompt.
 
-## What it is: a ready-to-use default workflow
-
-A first install creates a workflow that works out of the box: three default prompts plus one **daily 21:30 digest**
-task.
-
-- Plain-mail prompt: `prompt/prompt.md`
-- HTML-mail prompt: `prompt/prompt-html.md`
-- Digest prompt: `prompt/digest-prompt.md`
-
-Once a mailbox is added, the default workflow is:
-
-1. **poll + archive** every configured mailbox (IMAP / POP3 / OAuth2-IMAP / Gmail API / Microsoft Graph);
-2. **one turn per mail** — the archived message is handed to a scoped sub-agent with the default prompt; it classifies
-   the mail (urgent / attention / reply / FYI / noise), writes `conclusion.md`, and calls `qq_notify` itself when a
-   notification is needed;
-3. **a daily 21:30 digest** — the default task reads the archive and conclusions, writes the digest, sends it with
-   `qq_notify`, then clears the covered archives with `mail_automation_archive_clear`.
-
-New scheduled tasks must declare a `prompt_file` under `schedules:`; the default task is created with one. The time,
-prompts, tools and delivery are all editable — this is not a hard-coded product flow.
-
 The QQ notification and the digest are only the **default workflow**. None of it is hard-wired:
 
 - add, remove or edit **scheduled tasks** (Settings → Mail Assistant → Schedules, or `schedules:` in the YAML
@@ -37,7 +16,7 @@ The QQ notification and the digest are only the **default workflow**. None of it
 - change **`agent.tools`** and install other DSH plugins/tools; the per-mail sub-agent and the scheduled task get
   exactly the tools you list (for example `fs`, `search`, `web`, `skill`, `todo`), so they can write files, query the
   web, or call your own plugin;
-- change or remove the **delivery**: the plugin no longer posts to QQ by itself. Every send is an agent tool call
+- change or remove the **delivery**: the plugin does not post to QQ by itself. Every send is an agent tool call
   (`qq_notify`) driven by your prompt — drop it from the prompt and nothing is sent; `qq.enabled: false` still
   disables the tool. `archive/` + `conclusion.md` are plain files you can consume yourself.
 
