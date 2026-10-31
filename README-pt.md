@@ -87,8 +87,6 @@ Precedência, **da menor para a maior**:
 
 Uma alteração no YAML vence a camada 2; um campo ausente nas duas cai nos padrões do código. O caminho `configFile` vem da camada 2 (o `config.configFile` do perfil), não do próprio YAML. Os arrays `sources` / `schedules` são combinados por id, não substituídos inteiros.
 
-Por que `cordis.patch.yml`: não é um terceiro arquivo de configuração, mas o ponto de montagem do DSH. O DSH usa o patch para inserir `mail-automation` na pilha de plugins do perfil e valida/injeta a configuração com o esquema `Config`; sem o patch o plugin não é carregado. O bundle não leva `config` / `configFile` locais para não guardar caminhos absolutos de outra máquina; caminhos de implantação ficam na linha de override do perfil e as configurações do dia a dia no YAML. Assim código, implantação e configuração diária ficam separados, e editar o YAML não recarrega o plugin.
-
 No dia a dia basta a camada 3: salve e vale no próximo ciclo (prompts, no próximo e-mail). `poll_seconds` é volátil e
 `schedules` é reprogramado no próximo batimento: não precisa recarregar o plugin. Tabelas completas: [docs/configuration.md](docs/configuration.md).
 

@@ -86,8 +86,6 @@ dsh `0.2.1-rc.3` पर मापा गया: लिंक इंस्टॉ�
 
 YAML में लिखा field परत 2 को हराता है; दोनों में न हो तो कोड का default लागू होता है। `configFile` का path परत 2 (profile का `config.configFile`) से आता है, YAML से नहीं। `sources` / `schedules` arrays id से merge होते हैं, पूरे replace नहीं।
 
-`cordis.patch.yml` क्यों: यह तीसरा settings फ़ाइल नहीं, DSH का plugin mount point है। DSH इस patch से `mail-automation` को profile की plugin stack में डालता है और अपने `Config` schema से config validate/inject करता है; patch के बिना plugin लोड ही नहीं होता। Bundle में local `config` / `configFile` जानबूझकर नहीं है ताकि दूसरी मशीन का absolute path न रहे; deployment paths profile की same-id override row में और रोज़ की settings YAML में रहती हैं। इससे code, deployment और daily config अलग रहते हैं, और YAML बदलने पर plugin reload नहीं चाहिए।
-
 रोज़ के लिए परत 3 ही काफ़ी है: सहेजें, अगले चक्र में लागू (prompts अगली मेल पर)। `poll_seconds` volatile है और
 `schedules` अगले heartbeat पर फिर से शेड्यूल होता है — प्लगइन दोबारा लोड करने की ज़रूरत नहीं। पूरी फ़ील्ड सूची: [docs/configuration.md](docs/configuration.md)।
 

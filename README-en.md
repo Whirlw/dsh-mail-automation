@@ -107,13 +107,6 @@ So a day-to-day YAML edit beats layer 2; a field absent from both layer 2 and th
 `configFile` path itself comes from layer 2 (the profile's `config.configFile`) — the YAML cannot choose its own path.
 Array fields (`sources` / `schedules`) merge by id rather than replacing the whole array.
 
-Why `cordis.patch.yml`: it is not a third settings file but the DSH mount point. DSH uses the patch to insert
-`mail-automation` into the profile's plugin stack and validates/injects config against its `Config` schema; without the
-patch the plugin is never loaded. The bundle deliberately carries no local `config` / `configFile`, so a distributed
-copy cannot retain another machine's absolute path. Deployment paths live in the profile's same-id override row; runtime
-settings live in the YAML overlay. That keeps plugin code, deployment config and daily config independent, and a YAML edit
-needs no plugin reload.
-
 Only the overlay is meant for day-to-day edits: save the file and it applies on the next tick (prompts apply on the next
 mail). `poll_seconds` is volatile; `schedules` is re-armed on the next heartbeat when it changes, so neither needs a
 plugin reload. Full field tables: [docs/configuration.md](docs/configuration.md).
