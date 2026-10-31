@@ -78,11 +78,15 @@ node sync.mjs      # 把 src/ client.js skills/ scripts/ locale/ docs/ 同步进
 
 ## 配置
 
-三层配置，后层覆盖前层：
+配置按**优先级从低到高**是：
 
-1. `cordis.patch.yml` → `mail-automation` 那一行的 `config`（Schemastery 校验；profile 层可按 id 覆盖）
-2. `configFile` 指向的 YAML 覆盖层——默认 `$DSH_HOME/mail-automation/mail-automation.yaml`，每轮轮询重读
-3. `src/defaults.js` 里的内置默认值
+1. **代码兜底值**：`src/defaults.js` 里的提示词，以及 `normalizeConfig()` 对没写字段的默认值；
+2. **`cordis.patch.yml` 的 `config`**：DSH 的 schema 配置层，由 Schemastery 校验；profile 里可以按 `id` 覆盖这一行；
+3. **`configFile` 指向的 YAML 覆盖层**：默认 `$DSH_HOME/mail-automation/mail-automation.yaml`，优先级最高，每轮轮询重读。
+
+所以日常改 YAML 能盖住第 2 层；第 2 层没写、YAML 也没写的字段，才落到第 1 层的代码默认值。`configFile` 这个路径本身来自第 2 层（profile 的 `config.configFile`），YAML 不能反过来指定自己从哪读。数组字段（`sources` / `schedules`）按 id（没写 id 的来源按派生 id）合并，不是简单整段替换。
+
+为什么要用 `cordis.patch.yml`：它不是“第三份配置”，而是 DSH 的插件挂载入口。DSH 通过这个 patch 把 `mail-automation` 插入 profile 的插件栈，并按它的 `Config` schema 校验/注入配置；没有这个文件，插件根本不会被加载。bundle 里故意不写本机 `config` / `configFile`，避免分发到别的机器后残留绝对路径；部署相关的路径放在 profile 的同 id 覆盖行里，运行期可改的业务配置放 YAML 覆盖层。这样插件代码、部署配置和日常配置各自独立，改 YAML 不需要重载插件。
 
 日常只改覆盖层：保存后下一拍生效（提示词下一次处理/任务触发时生效）。`poll_seconds` 是 volatile；
 `schedules` 变化会在下一次心跳自动重排，都不用重载插件。完整字段表见 [docs/configuration.md](docs/configuration.md)。

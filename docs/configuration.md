@@ -2,15 +2,19 @@
 
 > 三层配置、全部字段、路径展开与已知边界。安装与最小示例见 [README](../README.md)。
 
-## 1. 三层，后层覆盖前层
+## 1. 三层，优先级从低到高
 
 ```
-① cordis.patch.yml 的 config（Schemastery 校验；profile 里按 id 整行覆盖）
-② configFile 指向的 YAML 覆盖层（默认 $DSH_HOME/mail-automation/mail-automation.yaml，每轮轮询重读）
-③ 代码兜底默认值（src/defaults.js + normalizeConfig 的 fallback）
+① 代码兜底值（src/defaults.js 的提示词 + normalizeConfig 的字段 fallback）
+② cordis.patch.yml 的 config（Schemastery 校验；profile 里按 id 整行覆盖）
+③ configFile 指向的 YAML 覆盖层（默认 $DSH_HOME/mail-automation/mail-automation.yaml，每轮轮询重读）
 ```
 
-- 覆盖是**整行 config 替换，不是深合并**（loader 语义）：在 profile 里覆盖 `mail-automation` 那一行时，要重述它需要的全部键。
+- ③ 盖 ②，② 盖 ①：YAML 里写到的字段优先；YAML 没写才看 schema config；两边都没有才落到代码默认值。
+- `configFile` 路径本身来自 ②（profile 的 `config.configFile`）；YAML 覆盖层不能指定自己从哪读。
+- `sources` / `schedules` 是**按 id 合并**（没写 id 的来源按派生 id），不是整段替换：覆盖层里同 id 的项覆盖 schema 层，没提到的项保留。
+- **profile 覆盖是整行 `config` 替换，不是深合并**（loader 语义）：在 profile 里覆盖 `mail-automation` 那一行时，要重述它需要的全部键。这是 ② 内部的覆盖规则，不是 ② 与 ③ 的合并方式。
+- **为什么需要 `cordis.patch.yml`**：它是 DSH 的插件挂载入口，不是第三份配置文件。DSH 靠 patch 把 `mail-automation` 插入 profile 插件栈，并按插件 `Config` schema 校验/注入配置；没有它插件不会被加载。分发包故意不带本机 `config` / `configFile`，避免换机器后残留绝对路径。
 - **覆盖层不需要重启**：`loadConfig()` 每轮重读；提示词文件每封邮件重读；凭据每次操作重解析。
 - 字段名两种写法都认：`cordis.patch.yml` 用 camelCase（`pollSeconds`），手写 YAML 用 snake_case（`poll_seconds`）。
   `canonicalizeConfig()` 会把 snake 归一成 camel —— 不做这一步，`poll_seconds` 与 `pollSeconds` 就是两个 key，YAML 改了不生效。

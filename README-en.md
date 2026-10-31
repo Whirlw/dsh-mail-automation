@@ -97,11 +97,22 @@ plugin page** — the CLI refuses it (`profile "desktop" is managed exclusively 
 
 ## Configure
 
-Three layers, later wins:
+Precedence, **lowest to highest**:
 
-1. `cordis.patch.yml` → the `mail-automation` row's `config` (Schemastery-validated; override it per profile)
-2. the YAML overlay at `configFile` — default `$DSH_HOME/mail-automation/mail-automation.yaml`, re-read on every poll
-3. built-in defaults in `src/defaults.js`
+1. **Code fallbacks**: prompt texts in `src/defaults.js` plus the per-field fallbacks in `normalizeConfig()`;
+2. **`cordis.patch.yml` `config`**: the DSH schema layer, validated by Schemastery; a profile can override that row by `id`;
+3. **the YAML overlay at `configFile`**: default `$DSH_HOME/mail-automation/mail-automation.yaml`, highest priority, re-read on every poll.
+
+So a day-to-day YAML edit beats layer 2; a field absent from both layer 2 and the YAML falls back to code defaults. The
+`configFile` path itself comes from layer 2 (the profile's `config.configFile`) — the YAML cannot choose its own path.
+Array fields (`sources` / `schedules`) merge by id rather than replacing the whole array.
+
+Why `cordis.patch.yml`: it is not a third settings file but the DSH mount point. DSH uses the patch to insert
+`mail-automation` into the profile's plugin stack and validates/injects config against its `Config` schema; without the
+patch the plugin is never loaded. The bundle deliberately carries no local `config` / `configFile`, so a distributed
+copy cannot retain another machine's absolute path. Deployment paths live in the profile's same-id override row; runtime
+settings live in the YAML overlay. That keeps plugin code, deployment config and daily config independent, and a YAML edit
+needs no plugin reload.
 
 Only the overlay is meant for day-to-day edits: save the file and it applies on the next tick (prompts apply on the next
 mail). `poll_seconds` is volatile; `schedules` is re-armed on the next heartbeat when it changes, so neither needs a
