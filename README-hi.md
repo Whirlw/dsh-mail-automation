@@ -1,5 +1,7 @@
 # dsh-mail-automation
 
+[简体中文](README.md) · [English](README-en.md) · [Español](README-es.md) · [Português](README-pt.md) · हिन्दी
+
 DeepSeek Harness (DSH) प्लगइन: आपके इनबॉक्स को एक मेल ट्रायाज पाइपलाइन बनाता है — IMAP और Microsoft Graph से
 पोल करता है, हर नई मेल को लोकल आर्काइव में सहेजता है, उसे एक **सीमित सब-एजेंट** को देता है जो उसे पढ़कर निष्कर्ष
 लिखता है, और **शेड्यूल्ड एजेंट टास्क** चलाता है (रोज़ / हफ़्ते / महीने / तय अंतराल / हर बार शुरू होने पर),
@@ -9,15 +11,32 @@ DeepSeek Harness (DSH) प्लगइन: आपके इनबॉक्स �
 - प्रति मेल एक आर्काइव फ़ोल्डर: मूल संदेश, HTML, टेक्स्ट, प्रीव्यू इमेज, `conclusion.md`
 - प्रति मेल सब-एजेंट, न्यूनतम preset के साथ (shell नहीं, फ़ाइल लेखन नहीं) — देखें `agent.preset`
 - मनमुताबिक़ शेड्यूल्ड टास्क (दिन में कई समय, हफ़्ते/महीने के कई दिन, तय अंतराल, हर बार शुरू होने पर);
-  हर टास्क का अपना prompt। QQ भेजना एजेंट खुद `qq_notify` से करता है; प्लगइन अब खुद नहीं भेजता।
+  हर टास्क का अपना prompt। QQ भेजना एजेंट खुद `qq_notify` से करता है; प्लगइन खुद नहीं भेजता।
 - DSH के अंदर सेटिंग्स पेज (overview / archived / mailboxes / schedules / prompts / params / guide) जो YAML को जगह पर ही बदलता है
 
-## What it is: a default control flow, not a fixed product
+पहली इंस्टॉल में सीधे काम करने वाला workflow बनता है: तीन डिफ़ॉल्ट prompts + रोज़ **21:30** का एक डाइजेस्ट टास्क।
 
-डिफ़ॉल्ट रूप से दो चरण जुड़े हैं: पोलिंग + लोकल आर्काइव, और हर मेल के लिए एक सब-एजेंट टर्न। शेड्यूल्ड टास्क
-स्पष्ट होते हैं: `schedules:` में `prompt_file` के साथ जोड़ें। सारांश टास्क आर्काइव पढ़कर सारांश लिख सकता है,
-`qq_notify` कॉल कर सकता है और `archive_clear` से साफ़ कर सकता है। फ़्लो **तय नहीं** है: टास्क जोड़ें/हटाएँ,
-प्रॉम्प्ट और `agent.tools` बदलें (और अन्य DSH प्लगइन जोड़ें)। डिलीवरी एजेंट के prompt में `qq_notify` कॉल है।
+- सामान्य मेल prompt: `prompt/prompt.md`
+- HTML मेल prompt: `prompt/prompt-html.md`
+- डाइजेस्ट prompt: `prompt/digest-prompt.md`
+
+मेलबॉक्स जोड़ने के बाद डिफ़ॉल्ट workflow:
+
+1. **poll + archive**: कॉन्फ़िगर किए गए मेलबॉक्स की हर नई मेल `archive/` में सहेजता है;
+2. **हर मेल पर एक turn**: आर्काइव को डिफ़ॉल्ट prompt के साथ सीमित सब-एजेंट को देता है; वह मेल को वर्गीकृत करता है
+   (urgent / attention / reply / FYI / noise), `conclusion.md` लिखता है, और ज़रूरत होने पर खुद `qq_notify` कॉल करता है;
+3. **रोज़ 21:30 डाइजेस्ट**: डिफ़ॉल्ट टास्क आर्काइव और conclusions पढ़कर सारांश लिखता है, `qq_notify` से भेजता है, और
+   `mail_automation_archive_clear` से कवर किए गए आर्काइव साफ़ करता है।
+
+नए शेड्यूल्ड टास्क में `schedules:` के तहत `prompt_file` देना ज़रूरी है; डिफ़ॉल्ट टास्क में यह पहले से है। समय,
+prompts, tools और delivery सभी बदले जा सकते हैं — यह fixed product flow नहीं है।
+
+**QQ सूचना और डाइजेस्ट केवल डिफ़ॉल्ट workflow हैं**। कुछ भी hard-coded नहीं है:
+
+- **शेड्यूल्ड टास्क**: Settings → Schedules या `schedules:` में जोड़ें/हटाएँ/बदलें; हर टास्क का अपना समय और `prompt_file`;
+- **Prompts**: Settings → Prompts / Schedules, या `prompt.file` / `prompt.html_file` से बदलें;
+- **Tools**: `agent.tools` में दूसरे DSH plugins के tools (`fs`, `search`, `web`, `skill`, `todo`, आदि) जोड़ सकते हैं;
+- **Delivery**: प्लगइन खुद नहीं भेजता; हर भेजना prompt में `qq_notify` कॉल है। `archive/` और `conclusion.md` सामान्य फ़ाइलें हैं।
 
 ## Requirements
 
@@ -29,7 +48,13 @@ DeepSeek Harness (DSH) प्लगइन: आपके इनबॉक्स �
 
 ## Install
 
-दोनों तरीके चलते हैं; वितरण के अनुसार चुनें:
+कई तरीके चलते हैं; एक चुनें:
+
+**npm इंस्टॉल** (publish के बाद):
+
+```powershell
+dsh plugin add dsh-mail-automation
+```
 
 **लिंक इंस्टॉल** (Windows पर junction; प्लगइन पेज का "स्थानीय फ़ोल्डर से इंस्टॉल")।
 यह रेपो **ही** इंस्टॉल प्रतिलिपि है — बदलकर DSH पुनः आरंभ करें:
@@ -53,13 +78,17 @@ dsh `0.2.1-rc.3` पर मापा गया: लिंक इंस्टॉ�
 
 ## Configure
 
-तीन परतें, बाद वाली जीतती है:
+प्राथमिकता, **कम से ज़्यादा**:
 
-1. `cordis.patch.yml` → `mail-automation` पंक्ति का `config` (Schemastery से सत्यापित; प्रोफ़ाइल में बदला जा सकता है)
-2. `configFile` का YAML — डिफ़ॉल्ट `$DSH_HOME/mail-automation/mail-automation.yaml`, हर चक्र में फिर पढ़ा जाता है
-3. `src/defaults.js` के अंतर्निहित मान
+1. **कोड के fallback मान**: `src/defaults.js` के prompts + `normalizeConfig()` के per-field fallbacks;
+2. **`cordis.patch.yml` का `config`**: DSH की schema परत, Schemastery से सत्यापित; प्रोफ़ाइल `id` से उस पंक्ति को बदल सकती है;
+3. **`configFile` का YAML**: डिफ़ॉल्ट `$DSH_HOME/mail-automation/mail-automation.yaml`, सबसे ज़्यादा प्राथमिकता और हर चक्र में फिर पढ़ा जाता है।
 
-रोज़ के लिए परत 2 ही काफ़ी है: सहेजें, अगले चक्र में लागू (prompts अगली मेल पर)। `poll_seconds` volatile है और
+YAML में लिखा field परत 2 को हराता है; दोनों में न हो तो कोड का default लागू होता है। `configFile` का path परत 2 (profile का `config.configFile`) से आता है, YAML से नहीं। `sources` / `schedules` arrays id से merge होते हैं, पूरे replace नहीं।
+
+`cordis.patch.yml` क्यों: यह तीसरा settings फ़ाइल नहीं, DSH का plugin mount point है। DSH इस patch से `mail-automation` को profile की plugin stack में डालता है और अपने `Config` schema से config validate/inject करता है; patch के बिना plugin लोड ही नहीं होता। Bundle में local `config` / `configFile` जानबूझकर नहीं है ताकि दूसरी मशीन का absolute path न रहे; deployment paths profile की same-id override row में और रोज़ की settings YAML में रहती हैं। इससे code, deployment और daily config अलग रहते हैं, और YAML बदलने पर plugin reload नहीं चाहिए।
+
+रोज़ के लिए परत 3 ही काफ़ी है: सहेजें, अगले चक्र में लागू (prompts अगली मेल पर)। `poll_seconds` volatile है और
 `schedules` अगले heartbeat पर फिर से शेड्यूल होता है — प्लगइन दोबारा लोड करने की ज़रूरत नहीं। पूरी फ़ील्ड सूची: [docs/configuration.md](docs/configuration.md)।
 
 क्रेडेंशियल संदर्भ से दें:

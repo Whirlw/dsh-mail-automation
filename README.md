@@ -1,6 +1,6 @@
 # dsh-mail-automation
 
-简体中文 · [English](README-en.md)
+简体中文 · [English](README-en.md) · [Español](README-es.md) · [Português](README-pt.md) · [हिन्दी](README-hi.md)
 
 DeepSeek Harness（DSH）插件：把收件箱变成自动化流程——轮询邮箱（IMAP / POP3 / OAuth2 / Gmail API / Graph），
 每封新邮件落成本地存档，交给一个**受限子智能体**读并写结论；另外可以配置**任意数量的定时任务**

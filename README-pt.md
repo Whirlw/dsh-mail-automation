@@ -1,5 +1,7 @@
 # dsh-mail-automation
 
+[简体中文](README.md) · [English](README-en.md) · [Español](README-es.md) · Português · [हिन्दी](README-hi.md)
+
 Plugin do DeepSeek Harness (DSH): transforma suas caixas de entrada numa linha de triagem — consulta IMAP e Microsoft
 Graph, arquiva cada e-mail novo localmente, entrega-o a um **subagente restrito** que o lê e escreve uma conclusão, e
 publica um resumo diário no QQ — e executa **tarefas agendadas de agente** (diárias / semanais / mensais / por
@@ -9,16 +11,33 @@ intervalo / ao iniciar), cada uma com seu próprio prompt e com o envio ao QQ fe
 - Uma pasta de arquivo por e-mail: mensagem original, HTML, texto, imagem de prévia, `conclusion.md`
 - Subagente por e-mail com preset mínimo (sem shell, sem escrita de arquivos) — ver `agent.preset`
 - Tarefas agendadas arbitrárias (vários horários por dia, vários dias da semana/mês, intervalo fixo, ao iniciar);
-  cada uma com seu prompt. O agente envia o QQ com `qq_notify`; o plugin não publica mais sozinho.
+  cada uma com seu prompt. O agente envia o QQ com `qq_notify`; o plugin não publica sozinho.
 - Página de ajustes dentro do DSH (resumo / arquivados / caixas / tarefas / prompts / parâmetros / guia) que reescreve o YAML no lugar
 
-## What it is: a default control flow, not a fixed product
+Uma primeira instalação cria um fluxo pronto para usar: três prompts padrão e uma tarefa de **resumo diário às 21:30**.
 
-De fábrica o plugin encadeia dois passos: polling + arquivo local e um turno do subagente por e-mail. As tarefas
-agendadas são explícitas: adicione em `schedules:` com `prompt_file`. Uma tarefa de resumo pode ler o arquivo, escrever
-o resumo, chamar `qq_notify` e limpar com `archive_clear`. O fluxo **não é fixo**: adicione/remova tarefas, troque os
-prompts e `agent.tools` (e instale outros plugins do DSH). A entrega é uma chamada `qq_notify` dentro do prompt do
-agente, então pode mudar ou remover.
+- Prompt de e-mail normal: `prompt/prompt.md`
+- Prompt de e-mail HTML: `prompt/prompt-html.md`
+- Prompt de resumo: `prompt/digest-prompt.md`
+
+Depois de adicionar uma caixa, o fluxo padrão é:
+
+1. **poll + arquivo**: salva cada e-mail novo da caixa configurada em `archive/`;
+2. **um turno por e-mail**: entrega o arquivo ao subagente restrito com o prompt padrão; ele classifica
+   (urgente / atenção / responder / informativo / ruído), escreve `conclusion.md` e chama `qq_notify` sozinho quando
+   precisa avisar;
+3. **resumo diário às 21:30**: a tarefa padrão lê o arquivo e as conclusões, escreve o resumo, envia com `qq_notify`
+   e limpa os arquivos cobertos com `mail_automation_archive_clear`.
+
+Tarefas novas precisam declarar `prompt_file` em `schedules:`; a tarefa padrão já vem com ele. Horário, prompts,
+ferramentas e entrega são editáveis — não é um fluxo de produto fixo.
+
+**O aviso por QQ e o resumo são apenas o fluxo padrão**. Nada é fixo:
+
+- **Tarefas agendadas**: adicione, edite ou remova em Configurações → Tarefas ou em `schedules:`; cada uma tem seu horário e `prompt_file`;
+- **Prompts**: troque em Configurações → Prompts / Tarefas, ou com `prompt.file` / `prompt.html_file`;
+- **Ferramentas**: `agent.tools` pode incluir ferramentas de outros plugins do DSH (`fs`, `search`, `web`, `skill`, `todo`, etc.);
+- **Entrega**: o plugin não publica sozinho; cada envio é uma chamada `qq_notify` do prompt. `archive/` e `conclusion.md` são arquivos normais que você pode consumir.
 
 ## Requirements
 
@@ -30,7 +49,13 @@ agente, então pode mudar ou remover.
 
 ## Install
 
-As duas formas funcionam; escolha conforme você distribui:
+Várias formas funcionam; escolha uma:
+
+**Instalação npm** (depois de publicar):
+
+```powershell
+dsh plugin add dsh-mail-automation
+```
 
 **Instalação por link** (o que "instalar da pasta local" produz no Windows: um junction).
 O repositório **é** a cópia instalada — basta editar e reiniciar o DSH:
@@ -54,13 +79,17 @@ pela página de plugins do app** — o CLI o recusa
 
 ## Configure
 
-Três camadas, a última vence:
+Precedência, **da menor para a maior**:
 
-1. `cordis.patch.yml` → o `config` da linha `mail-automation` (validado por Schemastery; pode ser sobrescrito por perfil)
-2. o YAML de `configFile` — padrão `$DSH_HOME/mail-automation/mail-automation.yaml`, relido a cada ciclo
-3. os padrões de `src/defaults.js`
+1. **Valores padrão do código**: prompts de `src/defaults.js` + fallbacks por campo de `normalizeConfig()`;
+2. **`config` do `cordis.patch.yml`**: camada de esquema do DSH, validada por Schemastery; o perfil pode sobrescrever essa linha por `id`;
+3. **YAML do `configFile`**: padrão `$DSH_HOME/mail-automation/mail-automation.yaml`, maior prioridade e relido a cada ciclo.
 
-No dia a dia basta a camada 2: salve e vale no próximo ciclo (prompts, no próximo e-mail). `poll_seconds` é volátil e
+Uma alteração no YAML vence a camada 2; um campo ausente nas duas cai nos padrões do código. O caminho `configFile` vem da camada 2 (o `config.configFile` do perfil), não do próprio YAML. Os arrays `sources` / `schedules` são combinados por id, não substituídos inteiros.
+
+Por que `cordis.patch.yml`: não é um terceiro arquivo de configuração, mas o ponto de montagem do DSH. O DSH usa o patch para inserir `mail-automation` na pilha de plugins do perfil e valida/injeta a configuração com o esquema `Config`; sem o patch o plugin não é carregado. O bundle não leva `config` / `configFile` locais para não guardar caminhos absolutos de outra máquina; caminhos de implantação ficam na linha de override do perfil e as configurações do dia a dia no YAML. Assim código, implantação e configuração diária ficam separados, e editar o YAML não recarrega o plugin.
+
+No dia a dia basta a camada 3: salve e vale no próximo ciclo (prompts, no próximo e-mail). `poll_seconds` é volátil e
 `schedules` é reprogramado no próximo batimento: não precisa recarregar o plugin. Tabelas completas: [docs/configuration.md](docs/configuration.md).
 
 Credenciais por referência:

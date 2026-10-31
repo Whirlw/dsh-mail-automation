@@ -1,6 +1,6 @@
 # dsh-mail-automation
 
-[简体中文](README.md) · English
+[简体中文](README.md) · English · [Español](README-es.md) · [Português](README-pt.md) · [हिन्दी](README-hi.md)
 
 A DeepSeek Harness (DSH) plugin that automates mailboxes: it polls your mail, archives each new message locally, hands
 it to a **restricted sub-agent** that reads it and writes a conclusion, and runs **any number of scheduled agent

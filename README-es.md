@@ -1,5 +1,7 @@
 # dsh-mail-automation
 
+[简体中文](README.md) · [English](README-en.md) · Español · [Português](README-pt.md) · [हिन्दी](README-hi.md)
+
 Plugin de DeepSeek Harness (DSH): convierte tus buzones en una línea de triaje — consulta IMAP y Microsoft Graph,
 archiva cada correo nuevo en local, se lo entrega a un **subagente restringido** que lo lee y escribe una conclusión,
 y ejecuta **tareas programadas de agente** (diarias / semanales / mensuales / por intervalo / al arrancar), cada una
@@ -9,16 +11,33 @@ con su propio prompt y con envío a QQ hecho por el agente.
 - Una carpeta de archivo por correo: mensaje original, HTML, texto, imagen de vista previa, `conclusion.md`
 - Subagente por correo con un preset mínimo (sin shell, sin escritura de ficheros) — ver `agent.preset`
 - Tareas programadas arbitrarias (varias horas al día, varios días de la semana/mes, intervalo fijo, al arrancar);
-  cada una con su prompt. El agente envía QQ con `qq_notify`; el plugin ya no publica por su cuenta.
+  cada una con su prompt. El agente envía QQ con `qq_notify`; el plugin no publica por su cuenta.
 - Página de ajustes dentro de DSH (resumen / archivados / buzones / tareas / prompts / parámetros / guía) que reescribe el YAML en su sitio
 
-## What it is: a default control flow, not a fixed product
+Una primera instalación crea un flujo listo para usar: tres prompts por defecto y una tarea de **resumen diario a las 21:30**.
 
-De fábrica solo se encadenan dos pasos: sondeo y archivo local, y un turno del subagente por correo. Las tareas
-programadas son explícitas: añádelas en `schedules:` con su `prompt_file`. Una tarea de resumen puede leer el archivo,
-escribir el resumen, llamar a `qq_notify` y limpiar con `archive_clear`. El flujo **no está fijado**: añade o quita
-tareas, cambia prompts, `agent.tools` (e instala otros plugins de DSH). La entrega es una llamada `qq_notify` dentro del
-prompt del agente, así que puedes cambiarla o quitarla.
+- Prompt de correo normal: `prompt/prompt.md`
+- Prompt de correo HTML: `prompt/prompt-html.md`
+- Prompt de resumen: `prompt/digest-prompt.md`
+
+Tras añadir un buzón, el flujo por defecto es:
+
+1. **poll + archivo**: guarda cada correo nuevo del buzón configurado en `archive/`;
+2. **un turno por correo**: entrega el archivo al subagente restringido con el prompt por defecto; clasifica
+   (urgente / atención / responder / informativo / ruido), escribe `conclusion.md` y llama a `qq_notify` él mismo
+   cuando hace falta avisar;
+3. **resumen diario a las 21:30**: la tarea por defecto lee el archivo y las conclusiones, escribe el resumen, lo envía
+   con `qq_notify` y limpia los archivos cubiertos con `mail_automation_archive_clear`.
+
+Las tareas nuevas deben declarar `prompt_file` en `schedules:`; la tarea por defecto ya lo incluye. La hora, los
+prompts, las herramientas y la entrega son editables: no es un flujo de producto fijo.
+
+**El aviso por QQ y el resumen son solo el flujo por defecto**. Nada está fijado:
+
+- **Tareas programadas**: añade, edita o elimina tareas en Ajustes → Tareas o en `schedules:`; cada una tiene su horario y su `prompt_file`;
+- **Prompts**: cámbialos en Ajustes → Prompts / Tareas, o con `prompt.file` / `prompt.html_file`;
+- **Herramientas**: `agent.tools` puede incluir herramientas de otros plugins de DSH (`fs`, `search`, `web`, `skill`, `todo`, etc.);
+- **Entrega**: el plugin no publica por su cuenta; cada envío es una llamada `qq_notify` del prompt. `archive/` y `conclusion.md` son archivos normales que puedes consumir por tu cuenta.
 
 ## Requirements
 
@@ -30,7 +49,13 @@ prompt del agente, así que puedes cambiarla o quitarla.
 
 ## Install
 
-Las dos formas funcionan; elige según cómo distribuyas:
+Varias formas funcionan; elige una:
+
+**Instalación npm** (tras publicar):
+
+```powershell
+dsh plugin add dsh-mail-automation
+```
 
 **Instalación por enlace** (lo que produce "instalar desde carpeta local" en Windows: un junction).
 El repositorio **es** la copia instalada, así que basta editar y reiniciar DSH:
@@ -54,13 +79,17 @@ desde la página de plugins de la app** — el CLI lo rechaza
 
 ## Configure
 
-Tres capas, gana la última:
+Precedencia, **de menor a mayor**:
 
-1. `cordis.patch.yml` → el `config` de la fila `mail-automation` (validado por Schemastery; se puede sobrescribir por perfil)
-2. el YAML de `configFile` — por defecto `$DSH_HOME/mail-automation/mail-automation.yaml`, se relee en cada ciclo
-3. los valores por defecto de `src/defaults.js`
+1. **Valores de respaldo en código**: prompts de `src/defaults.js` y fallbacks por campo de `normalizeConfig()`;
+2. **`config` de `cordis.patch.yml`**: capa de esquema de DSH, validada por Schemastery; un perfil puede sobrescribir esa fila por `id`;
+3. **YAML de `configFile`**: por defecto `$DSH_HOME/mail-automation/mail-automation.yaml`, máxima prioridad y se relee en cada ciclo.
 
-Para el día a día basta la capa 2: guarda y se aplica en el siguiente ciclo (los prompts, en el siguiente correo).
+Un cambio en el YAML gana a la capa 2; un campo ausente en ambas cae en los valores de código. La ruta `configFile` viene de la capa 2 (el `config.configFile` del perfil), no del propio YAML. Los arrays `sources` / `schedules` se combinan por id, no se reemplazan enteros.
+
+Por qué `cordis.patch.yml`: no es un tercer fichero de ajustes, sino el punto de montaje de DSH. DSH usa el patch para insertar `mail-automation` en la pila de plugins del perfil y valida/inyecta la configuración con su esquema `Config`; sin el patch el plugin no se carga. El bundle no lleva `config` / `configFile` locales para no conservar rutas absolutas de otra máquina; las rutas de despliegue viven en la fila de override del perfil y los ajustes diarios en el YAML. Así código, despliegue y configuración diaria quedan separados, y editar el YAML no recarga el plugin.
+
+Para el día a día basta la capa 3: guarda y se aplica en el siguiente ciclo (los prompts, en el siguiente correo).
 `poll_seconds` es volátil y `schedules` se reprograma en el siguiente latido: no hace falta recargar el plugin.
 Tablas completas de campos: [docs/configuration.md](docs/configuration.md).
 
