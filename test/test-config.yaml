@@ -1,0 +1,73 @@
+# 测试用配置：不推 QQ、存档写到 test/out
+# 这个 fixture 只给 test/harness.mjs 的离线冒烟用：IMAP 指向本机 1 端口（必然连不上），
+# Graph 令牌文件不存在也没关系——冒烟关心的是「配置能解析、基线/总览链路不崩」。
+#
+# **所有路径都是相对的**（按本文件所在目录 / $DSH_HOME 解析），换机器、换盘符都能直接跑
+# （dsh-plugin-guide §8：fixtures 必须可跨平台回放）。
+monitor:
+  poll_seconds: 30
+  initial_headers: 10
+  notify_on_start: false
+
+sources:
+  - id: private
+    name: 私人邮箱
+    type: imap
+    host: 127.0.0.1
+    port: 1
+    secure: false
+    user: test@example.com
+    password_ref: MAIL_PRIVATE_PASSWORD
+    mailbox: INBOX
+  - id: school
+    name: 学校邮箱
+    type: graph
+    # 故意指向一个不存在的令牌文件（相对路径按 $DSH_HOME 解析）：
+    # 冒烟必须离线，不许真的去读这台机器的 Graph 令牌
+    token_file: "./mail-automation-test-no-such-token.json"
+    folder: inbox
+    top: 20
+  # 0.4 新增的两种协议也走同一条冒烟链路：POP3 连不上、Gmail 没有令牌文件，
+  # 但**必须**表现为"来源级失败"（日志点名来源），而不是让整轮/整插件崩掉。
+  - id: family-pop3
+    name: 家庭 POP3
+    type: pop3
+    host: 127.0.0.1
+    port: 1
+    secure: false
+    user: pop@example.com
+    password: test-password
+  - id: work-gmail
+    name: 工作 Gmail
+    type: gmail
+    user: me@gmail.com
+    token_file: "./mail-automation-test-no-such-gmail-token.json"
+    folder: INBOX
+
+prompt:
+  # 相对路径按本文件所在目录解析：两份 fixture 都在 test/fixtures/ 下
+  file: "./fixtures/prompt.md"
+  html_file: "./fixtures/prompt-html.md"
+
+digest:
+  time: "23:59"
+  deliver: [local]
+  include_agent_summary: false
+
+storage:
+  # 相对路径按本文件所在目录解析 → dsh-mail-automation/test/out
+  root: "./out"
+  archive_subdir: archive
+  digest_subdir: digest
+  snapshot_file: startup.md
+  state_file: state.json
+  delete_after_digest: false
+
+agent:
+  workspace: "./out"
+  session_mode: daily
+
+qq:
+  enabled: false
+  openid: ""
+  markdown: true

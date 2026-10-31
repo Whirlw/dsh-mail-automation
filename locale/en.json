@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Mail Automation",
+    "description": "Automates IMAP / POP3 / OAuth2 / Gmail / Graph inboxes: each new mail goes to a scoped agent running your prompt. Ships a replaceable QQ alert + arbitrary scheduled tasks (daily / weekly / monthly / interval / startup)."
+  }
+}

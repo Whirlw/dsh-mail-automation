@@ -1,0 +1,87 @@
+{
+  "name": "dsh-mail-automation",
+  "version": "1.0.0",
+  "description": "DSH 邮件自动化：轮询 IMAP / POP3 / OAuth2 / Gmail / Graph 邮箱，逐封交给受限 agent 按提示词处理；可配置 QQ 提醒与自定义定时任务（每日/每周/每月/间隔/启动）。",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./client.js",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "client.js",
+    "skills",
+    "scripts",
+    "locale",
+    "docs",
+    "icon.svg",
+    "cordis.patch.yml",
+    "sync.mjs",
+    "README.md",
+    "README-zh.md",
+    "README-es.md",
+    "README-hi.md",
+    "README-pt.md"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "test": "node test/entry.test.mjs && node test/issues.test.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "mail",
+    "imap",
+    "pop3",
+    "gmail",
+    "graph",
+    "oauth",
+    "monitor"
+  ],
+  "license": "MIT",
+  "author": "Whirlw",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Whirlw/dsh-mail-automation.git"
+  },
+  "homepage": "https://github.com/Whirlw/dsh-mail-automation#readme",
+  "bugs": {
+    "url": "https://github.com/Whirlw/dsh-mail-automation/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "dependencies": {
+    "imapflow": "^2.5.5",
+    "mailparser": "^3.9.46",
+    "proper-lockfile": "^4.1.2",
+    "qrcode-generator": "^1.4.4",
+    "yaml": "^2.9.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-brand": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0 || >=0.2.1-0 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0 || >=0.2.1-0 <0.3.0",
+    "@deepseek-ai/dsh-session": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0 || >=0.2.1-0 <0.3.0",
+    "@deepseek-ai/dsh-storage-domain": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0 || >=0.2.1-0 <0.3.0",
+    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0 || >=0.2.1-0 <0.3.0",
+    "@deepseek-ai/schemastery": "^3.18.2"
+  }
+}

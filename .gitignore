@@ -1,0 +1,77 @@
+# ── Dependencies ─────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+.npm-cache/
+
+# ── Secrets / local environment ──────────────────────────────
+.env
+.env.*
+!.env.example
+.credentials.yaml
+.credentials.yml
+credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+.npmrc.local
+
+# ── Plugin runtime data (repo-relative paths only) ───────────
+/mail-assistant.yaml
+/mail-assistant.local.yaml
+/archive/
+/tokens/
+/digest/
+/startup.md
+/state.json
+/.dsh/
+*.token.json
+
+# ── Test output: test/harness.mjs deletes and regenerates test/out ──
+/test/out/
+/test/*.log
+*.log
+*.log.*
+logs/
+
+# ── Build / coverage / package artifacts ─────────────────────
+dist/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+*.tgz
+*.tar.gz
+
+# ── Logs, backups, temp files ────────────────────────────────
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+*.bak
+*.bak-*
+*.orig
+*.rej
+*.tmp
+*.swp
+*.swo
+*~
+*.stackdump
+
+# ── OS / IDE noise ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+.history/
+*.sublime-project
+*.sublime-workspace
+
+# ── Local audit / scratch workspace (repo root only) ─────────
+/problems/
+
+# ── MUST stay tracked ────────────────────────────────────────
+# package-lock.json, client.js, cordis.patch.yml, sync.mjs,
+# docs/, locale/, skills/, scripts/, test/ (except out/),
+# icon.svg, README*.md, LICENSE

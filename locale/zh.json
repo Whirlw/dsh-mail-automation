@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "邮件自动化",
+    "description": "自动轮询 IMAP / POP3 / OAuth2 / Gmail / Microsoft Graph 邮箱：新邮件逐封交给受限 agent 按你的提示词处理；默认附带一套可替换的 QQ 提醒 + 自定义定时任务（每日/每周/每月/间隔/启动）。"
+  }
+}

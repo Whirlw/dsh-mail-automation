@@ -1,0 +1,37 @@
+# dsh-mail-automation bundle patch：把插件插入 profile 层栈。
+#
+# 配置分两层，后层覆盖前层：
+#   1. profile 的 cordis.patch.yml 里按 id 覆盖这一行的 `config` —— 插件 Config schema
+#      里的**所有**可调项都能在这里改：pollSeconds / initialHeaders / sources / prompt /
+#      schedules / digest / storage / agent / credentials / render / qq。
+#   2. `configFile` 指向的 YAML 覆盖层 —— 随手改、改完即生效（插件每轮重读，不用重启 DSH）。
+#
+# **这一行故意不带 config**：bundle 是分发给别人安装的，里面不能出现本机的绝对路径。
+# 带上 `configFile: <本机路径>` 的后果是换机器后那个文件不存在、schema 层又没有 sources，
+# 插件会一直报「配置文件不存在」而**永不轮询**（只有一行 WARN，很难定位）。
+#
+# 部署值请放在 profile 的 cordis.patch.yml（按 id 覆盖同一行，后层覆盖前层），例如：
+#   - id: mail-automation
+#     name: dsh-mail-automation
+#     config:
+#       configFile: E:/your/deploy/mail-automation.yaml
+#
+# 什么都不写时插件用默认值：`$DSH_HOME/mail-automation/mail-automation.yaml`
+# （存档根目录默认也在 `$DSH_HOME/mail-automation` 下，不含任何机器绝对路径）。
+- insert:
+    - id: mail-automation
+      name: dsh-mail-automation
+
+# ── 邮件子 agent 的预设：**不再在这里声明** ──────────────────────────────────
+# 0.3.0 起，预设由插件在运行时用 `ctx.agentPresets.register()` 注册（`src/preset.js`）：
+#   - 人设固定（只读存档、看预览图、发 QQ）；
+#   - 工具集来自配置 `agent.tools`（默认 `[read_image]`，可加 read/write/edit、glob/grep、
+#     web_fetch/web_search、skill、todo_write）；
+#   - 配置文件或设置页改完即生效（下一次创建子智能体时挂新 revision），**不需要改 profile patch**。
+#
+# 为什么搬走：工具集要能自由改，而"运行期改 profile 的 patch"会触发 HMR 重载（丢 preset 工具、
+# 杀掉在途 turn，最坏永久废掉 sessionController）。运行时注册是官方缝，注册返回 disposer，
+# 插件卸载/工具集变化时先撤销再注册。
+#
+# 兜底不变：宿主没有 `agentPresets`、注册失败或挂载失败时，`agent.js` 会退回**部署默认预设**
+# 并记一条 WARN —— 只损失省 token，不会让邮件处理不了。
