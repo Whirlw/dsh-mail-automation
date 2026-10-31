@@ -6,19 +6,28 @@ A DeepSeek Harness (DSH) plugin that automates mailboxes: it polls your mail, ar
 it to a **restricted sub-agent** that reads it and writes a conclusion, and runs **any number of scheduled agent
 tasks** — daily / weekly / monthly / fixed-interval / on-startup, each with its own prompt.
 
-## What it is: a default control flow, not a fixed product
+## What it is: a ready-to-use default workflow
 
-Out of the box the plugin wires two things:
+A first install creates a workflow that works out of the box: three default prompts plus one **daily 21:30 digest**
+task.
+
+- Plain-mail prompt: `prompt/prompt.md`
+- HTML-mail prompt: `prompt/prompt-html.md`
+- Digest prompt: `prompt/digest-prompt.md`
+
+Once a mailbox is added, the default workflow is:
 
 1. **poll + archive** every configured mailbox (IMAP / POP3 / OAuth2-IMAP / Gmail API / Microsoft Graph);
-2. **one turn per mail** — the archived message is handed to a scoped sub-agent with a prompt, and the answer becomes
-   `conclusion.md`.
+2. **one turn per mail** — the archived message is handed to a scoped sub-agent with the default prompt; it classifies
+   the mail (urgent / attention / reply / FYI / noise), writes `conclusion.md`, and calls `qq_notify` itself when a
+   notification is needed;
+3. **a daily 21:30 digest** — the default task reads the archive and conclusions, writes the digest, sends it with
+   `qq_notify`, then clears the covered archives with `mail_automation_archive_clear`.
 
-Scheduled tasks are explicit: add them under `schedules:` and give each one a `prompt_file`. A digest task can list the
-archive with `mail_automation_archive_list`, write the summary, **send it to QQ itself** with `qq_notify`, then clear
-the archive with `mail_automation_archive_clear`.
+New scheduled tasks must declare a `prompt_file` under `schedules:`; the default task is created with one. The time,
+prompts, tools and delivery are all editable — this is not a hard-coded product flow.
 
-The QQ notification and the digest are only a **common control flow**. None of it is hard-wired:
+The QQ notification and the digest are only the **default workflow**. None of it is hard-wired:
 
 - add, remove or edit **scheduled tasks** (Settings → Mail Assistant → Schedules, or `schedules:` in the YAML
   overlay) — each task has its own schedule (daily at several times, weekly on several weekdays, monthly on several
