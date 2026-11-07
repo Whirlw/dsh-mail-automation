@@ -15,6 +15,14 @@ import { loadHost } from './host.js';
 import { dayString } from './store.js';
 import { DEFAULT_AGENT_WORKSPACE, expandPath } from './config.js';
 import { MAIL_PRESET_ID, normalizeMailTools } from './preset.js';
+import {
+  DEFAULT_SESSION_BUDGET_MB,
+  describeFootprint,
+  evaluatePromptBudget,
+  evaluateSessionBudget,
+  sessionFootprint,
+  utf8Bytes,
+} from './budget.js';
 
 /** 读取会话事件（宿主没有 snapshotEvents 时返回空数组） */
 function eventsOf(agent) {
@@ -89,7 +97,7 @@ function withTimeout(promise, ms, what) {
 }
 
 export class MailAgentRunner {
-  constructor({ ctx, logger, state, persist, getTurnTimeoutMs, getMailPresetId, getMailTools, getReasoningEffort, getOpenerPrompt, getSilent, getProvider, getModel }) {
+  constructor({ ctx, logger, state, persist, getTurnTimeoutMs, getMailPresetId, getMailTools, getReasoningEffort, getOpenerPrompt, getSilent, getProvider, getModel, getSessionBudgetMb, getPromptMaxKb }) {
     this.ctx = ctx;
     this.logger = logger;
     this.state = state;
@@ -109,6 +117,10 @@ export class MailAgentRunner {
     this.getOpenerPrompt = typeof getOpenerPrompt === 'function' ? getOpenerPrompt : null;
     /** 配置 `agent.silent`：静默处理，不把会话露在侧边栏 */
     this.getSilent = typeof getSilent === 'function' ? getSilent : null;
+    /** 配置 `agent.sessionBudgetMb`：单个会话的字节预算（0 = 不限制） */
+    this.getSessionBudgetMb = typeof getSessionBudgetMb === 'function' ? getSessionBudgetMb : null;
+    /** 配置 `agent.promptMaxKb`：单条提示词的字节上限（0 = 不限制） */
+    this.getPromptMaxKb = typeof getPromptMaxKb === 'function' ? getPromptMaxKb : null;
     this.handles = new Map();
     this.chain = Promise.resolve();
     this.loaderReady = null;
@@ -159,6 +171,40 @@ export class MailAgentRunner {
       configured = undefined;
     }
     return Number.isFinite(configured) && configured >= 30_000 ? configured : TURN_TIMEOUT_MS;
+  }
+
+  /**
+   * 单个会话的字节预算（`agent.sessionBudgetMb`）。
+   *
+   * 0 = 显式关闭（用户自己承担会话无界增长的后果）；配置非法时退回默认 8 MB，
+   * 而不是"关掉"——这类保护失效的代价是整条会话被外部代理判死，比多一次换代贵得多。
+   */
+  sessionBudgetBytes() {
+    let configured;
+    try {
+      configured = Number(this.getSessionBudgetMb?.());
+    } catch {
+      configured = undefined;
+    }
+    const mb = Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_SESSION_BUDGET_MB;
+    return Math.round(mb * 1024 * 1024);
+  }
+
+  /** 单条提示词的字节上限（`agent.promptMaxKb`，0 = 关闭） */
+  promptBudgetBytes() {
+    let configured;
+    try {
+      configured = Number(this.getPromptMaxKb?.());
+    } catch {
+      configured = undefined;
+    }
+    const kb = Number.isFinite(configured) && configured >= 0 ? configured : 512;
+    return Math.round(kb * 1024);
+  }
+
+  /** 量一个会话的体量并给出是否超预算（父会话换代 / 每日会话换代共用） */
+  budgetStateOf(agent) {
+    return evaluateSessionBudget(sessionFootprint(eventsOf(agent)), { maxBytes: this.sessionBudgetBytes() });
   }
 
   /** 等 loader 装配完成（启动早期不能 create agent） */
@@ -882,6 +928,31 @@ export class MailAgentRunner {
     let parentAgent = handle?.agent ?? handle;
 
     /*
+     * 会话体积预算（`agent.sessionBudgetMb`）。
+     *
+     * 父会话是**长期存在**的：跨重启 resume、定时任务每跑一次都往里加事件，没有任何
+     * 天然上限。一旦它长到超出模型窗口（或超出上游折叠代理能处理的范围），每一条新请求
+     * 都注定失败——2026-11-07 就是这样把一条 19.5 MB 的会话卡死的（见 docs/lessons.md）。
+     * 超过预算就归档旧的、换一代新的：新会话从 0 开始，代价只是丢掉一段不再需要的历史，
+     * 换来"邮件处理不会因为会话太长而整体停摆"。
+     *
+     * 与下面的 broken 分支同路：先归档再建。旧会话名下的子会话早就跑完了，
+     * 归档它们不受影响（真正会被 `agent/pre-step` 拒的是**在用时**归档父会话）。
+     */
+    const budget = this.budgetStateOf(parentAgent);
+    if (budget.over) {
+      const oldId = String(parentAgent?.session?.id ?? wanted);
+      this.logger?.warn?.(
+        `[mail-automation] 父会话 ${oldId} 已累计 ${describeFootprint(budget)}，超过会话预算 ${(budget.limit / (1024 * 1024)).toFixed(0)} MB；归档并换代`,
+      );
+      await this.archiveSession(oldId).catch(() => false);
+      const fresh = `session-${randomUUID()}`;
+      handle = await spawn(fresh);
+      parentAgent = handle?.agent ?? handle;
+      this.parentPrimed = false;
+    }
+
+    /*
      * 只剩失败回合的父会话（有 user/message、没有 assistant/message）不能用：
      * 例如早先 agentOptions 缺失导致的 "{{model}} has no value" 会把每条消息都变成失败消息，
      * 反复复用只会越积越多。这里换一个干净会话，并把坏的归档。
@@ -1121,6 +1192,17 @@ export class MailAgentRunner {
     if (sessionId && this.stuckSessions.has(sessionId)) {
       throw new Error('上一回合超时后仍未停稳，本会话已弃用（本轮跳过）');
     }
+    /*
+     * 提示词体积闸门：一封巨长的邮件正文、或一份列了上万封的存档清单，可能让这一条请求
+     * 本身就超过模型窗口。发出去只会换回一个 413 / 400，然后进重试队列再失败一次。
+     * 这里提前判、明确报出字节数——失败会走既有的"失败占位 + 重试"路径，用户能看到原因。
+     */
+    const promptBudget = evaluatePromptBudget(prompt, { maxBytes: this.promptBudgetBytes() });
+    if (promptBudget.over) {
+      throw new Error(
+        `提示词 ${(promptBudget.bytes / 1024).toFixed(0)} KB 超过上限 ${(promptBudget.limit / 1024).toFixed(0)} KB（agent.promptMaxKb=${Math.round(promptBudget.limit / 1024)}），未发送`,
+      );
+    }
     const { createUserMessage, SessionSeq } = await loadSdk();
     await withTimeout(Promise.resolve(agent.whenIdle()), 60_000, '等待 agent 空闲');
     const firstSeq = agent.session.seq;
@@ -1164,6 +1246,20 @@ export class MailAgentRunner {
     // 每日会话模式：复用同一个会话（不建子智能体）
     if (sessionMode === 'daily') {
       let sessionId = this.sessionIdFor('daily');
+      /*
+       * 每日会话的体积预算：同一天的所有邮件走同一个会话，一封一封累起来没有上限。
+       * 超预算就弃用当天这个、换一个新的（旧句柄留在 handles 里由 dispose 统一释放，
+       * 与下面 stuckSessions 的处理方式一致）。
+       */
+      const dailyHandle = this.handles.get(sessionId);
+      const dailyBudget = this.budgetStateOf(dailyHandle?.agent ?? dailyHandle);
+      if (dailyHandle && dailyBudget.over) {
+        this.state.agent = { ...(this.state.agent ?? {}), sessionId: '' };
+        sessionId = this.sessionIdFor('daily');
+        this.logger?.warn?.(
+          `[mail-automation] 今日会话已累计 ${describeFootprint(dailyBudget)}，超过会话预算 ${(dailyBudget.limit / (1024 * 1024)).toFixed(0)} MB；改用新会话 ${sessionId}`,
+        );
+      }
       /*
        * 上一回合超时、取消后仍没停稳：这个会话已经脏了，继续用会让每封都"等待空闲超时"。
        * 旧句柄留在 handles 里到卸载时统一释放（它可能还在后台收敛），但不再接新回合。

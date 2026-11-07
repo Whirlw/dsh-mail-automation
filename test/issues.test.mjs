@@ -484,6 +484,147 @@ await checkAsync('run-task HTTP 响应保留失败判别位和错误，也能返
   }
 });
 
+// ── 会话体积预算（src/budget.js）：2026-11-07 的 413 事故留下的护栏 ──────────────
+{
+  const budget = await import('../src/budget.js');
+
+  check('budget: 会话体量按 JSON 字节累加，非 JSON 事件算 0', () => {
+    const events = [
+      { type: 'user/message', data: { text: 'a'.repeat(100) } },
+      { type: 'tool/result', data: { text: '中文' } },
+      null,
+      { big: undefined, fn: () => 1 },
+    ];
+    const footprint = budget.sessionFootprint(events);
+    assert.equal(footprint.count, 4);
+    // 第 3 条是 null → 0；第 4 条里的函数被 JSON.stringify 丢掉，仍能序列化
+    assert.ok(footprint.bytes > 100);
+    assert.equal(budget.sessionFootprint(null).bytes, 0);
+  });
+
+  check('budget: 超过上限才判 over；0 = 关闭预算但仍报体量', () => {
+    const footprint = { count: 10, bytes: 9 * 1024 * 1024 };
+    const over = budget.evaluateSessionBudget(footprint, { maxBytes: 8 * 1024 * 1024 });
+    assert.equal(over.over, true);
+    assert.equal(over.bytes, 9 * 1024 * 1024);
+    assert.equal(over.limit, 8 * 1024 * 1024);
+    assert.equal(budget.evaluateSessionBudget(footprint, { maxBytes: 0 }).over, false);
+    assert.equal(budget.evaluateSessionBudget(footprint, { maxBytes: 16 * 1024 * 1024 }).over, false);
+    // 边界：恰好等于上限不算超（换代是"必须换"的动作，别为 1 字节抖动）
+    assert.equal(budget.evaluateSessionBudget({ count: 1, bytes: 8 }, { maxBytes: 8 }).over, false);
+  });
+
+  check('budget: 提示词按 UTF-8 字节量（中文 3 字节）', () => {
+    assert.equal(budget.utf8Bytes('中文'), 6);
+    assert.equal(budget.utf8Bytes(''), 0);
+    assert.equal(budget.utf8Bytes(undefined), 0);
+    const verdict = budget.evaluatePromptBudget('中'.repeat(400), { maxBytes: 1024 });
+    assert.equal(verdict.bytes, 1200);
+    assert.equal(verdict.over, true);
+    assert.equal(budget.evaluatePromptBudget('ok', { maxBytes: 0 }).over, false);
+  });
+
+  check('budget: 安全阈值 = 窗口 × 7.5 字节，窗口未知时用兜底窗口', () => {
+    assert.equal(budget.windowSafeBytes(1_000_000), 7_500_000);
+    assert.equal(budget.windowSafeBytes(0), Math.floor(budget.MIN_ASSUMED_WINDOW_TOKENS * 7.5));
+    assert.ok(budget.windowSafeBytes(0) > 5 * 1024 * 1024);
+  });
+
+  check('budget: bili 只在数据目录存在时算"在场"', () => {
+    const seen = [];
+    const exists = (p) => {
+      seen.push(p);
+      return p === path.join('/home/u', '.config', 'billion-context');
+    };
+    assert.equal(budget.detectBillionContext({ homedir: '/home/u', existsSync: exists }), true);
+    assert.ok(seen.some((p) => p.includes('.local')));
+    assert.equal(budget.detectBillionContext({ homedir: '/home/u', existsSync: () => false }), false);
+    // 探测函数抛错时安静地当作没装
+    assert.equal(
+      budget.detectBillionContext({
+        homedir: '/home/u',
+        existsSync: () => {
+          throw new Error('EACCES');
+        },
+      }),
+      false,
+    );
+    assert.equal(budget.detectBillionContext({ homedir: '' }), false);
+  });
+
+  check('budget: 读 bili 配置（读不到 / 坏 JSON / 不是对象 一律 undefined）', () => {
+    const read = (payload) =>
+      budget.readBillionContextConfig({
+        homedir: '/home/u',
+        readFileSync: () => {
+          if (payload instanceof Error) throw payload;
+          return payload;
+        },
+      });
+    assert.deepEqual(read('{"compress":{"externalSummary":{"enabled":true}}}'), {
+      compress: { externalSummary: { enabled: true } },
+    });
+    assert.equal(read(new Error('ENOENT')), undefined);
+    assert.equal(read('{not json'), undefined);
+    assert.equal(read('[1,2]'), undefined);
+    assert.equal(read('null'), undefined);
+    // 没有 home 就不去拼路径
+    assert.equal(budget.readBillionContextConfig({ homedir: '' }), undefined);
+  });
+
+  check('budget: bili 折叠没武装才提示（没装 bili 永远不提示）', () => {
+    const verdict = (args) => budget.billionContextFoldVerdict(args);
+    const armed = {
+      compress: { externalSummary: { enabled: true, autoFold: true, targets: ['deepseek-official/deepseek-flash'] } },
+    };
+    assert.equal(verdict({ biliPresent: false }).needed, false);
+    // 装了 bili 但配置读不到：按"没武装"提示（宁可多说一句，也不能让人以为折叠在）
+    assert.equal(verdict({ biliPresent: true }).needed, true);
+    // enabled 但没开 autoFold：仍然是 fail-fast 413，要提示
+    assert.equal(
+      verdict({ biliPresent: true, config: { compress: { externalSummary: { enabled: true, targets: ['a/b'] } } } }).needed,
+      true,
+    );
+    // 开了 autoFold 但没 target：同样不武装
+    assert.equal(
+      verdict({ biliPresent: true, config: { compress: { externalSummary: { enabled: true, autoFold: true } } } }).needed,
+      true,
+    );
+    assert.equal(verdict({ biliPresent: true, config: armed }).needed, false);
+  });
+
+  check('budget: 描述体量给人看（KB / MB 两档，不出现 0 KB）', () => {
+    assert.equal(budget.describeFootprint({ count: 1234, bytes: 3 * 1024 * 1024 }), '1,234 条事件 / 3.0 MB');
+    assert.equal(budget.describeFootprint({ count: 3, bytes: 100 }), '3 条事件 / 1 KB');
+  });
+
+  // runner 侧的三个读数：预算/提示词上限/会话体量判定（不建 agent，纯读配置 + 事件）
+  const { MailAgentRunner } = await import('../src/agent.js');
+  const makeRunner = (options = {}) =>
+    new MailAgentRunner({ ctx: {}, logger: quiet, state: {}, ...options });
+
+  check('budget: runner 读配置的 MB / KB，非法值退回默认（0 = 显式关闭）', () => {
+    assert.equal(makeRunner({ getSessionBudgetMb: () => 4 }).sessionBudgetBytes(), 4 * 1024 * 1024);
+    assert.equal(makeRunner({ getSessionBudgetMb: () => 0 }).sessionBudgetBytes(), 0);
+    assert.equal(makeRunner({ getSessionBudgetMb: () => 'x' }).sessionBudgetBytes(), 8 * 1024 * 1024);
+    assert.equal(makeRunner({ getSessionBudgetMb: () => -1 }).sessionBudgetBytes(), 8 * 1024 * 1024);
+    assert.equal(makeRunner({}).sessionBudgetBytes(), 8 * 1024 * 1024);
+    assert.equal(makeRunner({ getPromptMaxKb: () => 8 }).promptBudgetBytes(), 8 * 1024);
+    assert.equal(makeRunner({ getPromptMaxKb: () => 0 }).promptBudgetBytes(), 0);
+    assert.equal(makeRunner({}).promptBudgetBytes(), 512 * 1024);
+  });
+
+  check('budget: runner 用一个假会话判"是否该换代"', () => {
+    const agent = { session: { snapshotEvents: () => [{ data: { text: 'x'.repeat(2 * 1024 * 1024) } }] } };
+    assert.equal(makeRunner({ getSessionBudgetMb: () => 1 }).budgetStateOf(agent).over, true);
+    assert.equal(makeRunner({ getSessionBudgetMb: () => 4 }).budgetStateOf(agent).over, false);
+    // 0 = 关掉预算：即便体量惊人也不换代（用户显式选择）
+    assert.equal(makeRunner({ getSessionBudgetMb: () => 0 }).budgetStateOf(agent).over, false);
+    // 拿不到会话（null / 没有 snapshotEvents）按空会话处理，不能抛
+    assert.equal(makeRunner({ getSessionBudgetMb: () => 1 }).budgetStateOf(null).bytes, 0);
+  });
+}
+
 console.log(`\n=== 完成：${passed} 项通过${process.exitCode ? '，有失败' : ''} ===`);
 try {
   fs.rmSync(work, { recursive: true, force: true });

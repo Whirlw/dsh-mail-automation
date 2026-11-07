@@ -1,17 +1,18 @@
 # 开发与验证
 
-> 基线：插件 `1.0.0`、Node `^22.19.0 || >=24.0.0`。本文只记录**当前**开发约束，不保留旧版本变更史。
+> 基线：插件 `1.1.0`、Node `^22.19.0 || >=24.0.0`。本文只记录**当前**开发约束，不保留旧版本变更史。
 
 ## 1. 环境事实
 
 | 项 | 值 |
 |---|---|
-| 插件 | `1.0.0`（显式定时任务 + 直接工具调用） |
-| 离线测试 | `node test/entry.test.mjs` = 92 项；`node test/issues.test.mjs` = 22 项 |
-| 静态检查 | `dsh-plugin-dev check` = 12 passed / 0 failed / 1 warned / 3 skipped |
+| 插件 | `1.1.0`（显式定时任务 + 直接工具调用 + 会话体积预算） |
+| 离线测试 | `node test/entry.test.mjs` = 92 项；`node test/issues.test.mjs` = 32 项 |
+| 静态检查 | `dsh-plugin-dev check` = 11 passed / 0 failed / 2 warned / 3 skipped |
 | 安装形态 | profile `desktop` 里是指向本仓库的 junction（插件页安装）；日志 `schema=bare-import` |
 
-`1 warned` 是 `manifest-package-manager`（未固定 packageManager），与功能无关。
+`2 warned` 是 `manifest-package-manager`（未固定 packageManager）与 `readme-consistency`
+（`README-zh.md` 是 203 字节的**跳转页**，正文在 `README.md`，门禁把它当成"缺标题"——误报，别去改 README）。
 
 ## 2. 代码边界
 
@@ -21,6 +22,7 @@
 | `src/config.js` | schema/YAML 归一化、路径展开、提示词读取、schema 导出 |
 | `src/schema.js` | Cordis 配置 schema（当前字段的唯一说明） |
 | `src/schedule.js` | 纯排期数学与 busy 退避 |
+| `src/budget.js` | 体积预算与 bili 折叠状态检测（纯函数；`fs`/`home` 可注入） |
 | `src/store.js` | 状态双后端、存档布局、结论状态 |
 | `src/digest.js` | 任务提示词模板变量（清单/快照），不再有手动总览 |
 | `src/tools.js` | 7 个 agent 工具 |

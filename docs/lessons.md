@@ -280,3 +280,65 @@ effect 抛错的 fiber 级联、超时 ≠ 取消、子智能体父会话 primin
 6. **默认提示词的历史注释只能一次性清**：`ensureDefaultPromptFiles()` 只对带旧标题
    （`# 邮件监控提示词` / `# 每日总览提示词`）的文件做 strip；不能每次启动都 strip，否则用户按指南新加的
    `# 注释` 会在下次启动被吞掉。指南页要把 `#` 头注释与 `<!-- -->` 两种语法写清楚。
+
+## 26. 2026-11-07：system prompt 一变，折叠代理就把会话换了一条车道
+
+**现象**：用户的主会话（31,559 条消息）突然不能继续对话。每条请求都被上游代理拒绝：
+
+```
+413 core-text profile: 24357 message(s), 19499215B core … duplicateRatio=0.042
+{"error":{"type":"request_too_large","code":"egress_window_fuse","stage":"forward"}}
+```
+
+**机制**：billion-context（bili）的车道身份是「会话 id + **system prompt 的 sha256 前 16 位**」：
+
+```js
+function resolveSessionOrder(rawId, history, personaTag, declaredModel, …){
+  const tag = personaTag ?? '';                 // = 整段 system prompt
+  const tagHash = sha256(tag);
+  const recorded = skeletons.get(rawId);
+  if (tagChanged) { /* 四条 reanchor 启发式，全落空就往下走 */ }
+  return { key: `${rawId}|sub:${fp16(tag)}` };  // 新车道，不继承折叠块
+}
+```
+
+`provider` / `model` **不参与**这段哈希（`declaredModel` 只当 reanchor 的旁证）——所以"给后台 agent
+换个 provider/key"并不能隔离身份，只能分隔配额。这一点我第一版写错了，后来对着 bili 的实际
+metadata 才纠正过来。
+
+事故当天该会话的 system prompt 从 16,480 token 变成 16,636（`sessions.metadata_json.systemPromptTokens`
+可以直接对照两条车道），四条 `reanchor` 启发式全部落空——日志里最直白的一条是
+`[resume-inheritance] miss: no byte-exact resume among 23 eligible chain(s)`——于是 31,347 条消息进了
+`…|sub:c37b54e4…`：一条全新的车道，**不继承 base 的折叠块**，整段历史（19.5 MB）直接撞 bili 的
+egress 闸门（`max(兜底字节, 窗口 × 7.5 B/token)`），413 且没有自愈路径（`bili` 没有离线 fold 命令，
+`splitSessionWarnings` 又恰好跳过这种 `personaNamespace` 会话）。
+
+**第二环**才是让事故"卡死"的原因：bili 的 `growthFoldingArmed()` 要求
+`externalSummary.enabled === true && autoFold === true` 且有 target；没开就走 fail-fast 分支，
+`probeForEvidence` 直接把注定超窗的请求判掉，连折叠都不试。
+
+**现码**：
+
+- `src/budget.js`：`sessionFootprint` / `evaluateSessionBudget` / `evaluatePromptBudget` /
+  `detectBillionContext` / `readBillionContextConfig` / `billionContextFoldVerdict`（纯函数，`fs`/`home` 可注入）。
+- `src/agent.js`：`sessionBudgetBytes()` + `ensureParent` 的换代分支（父会话超预算 → 归档 + 新建）、
+  `runInner` 的 daily 分支（当天会话超预算 → 弃用换新）、`runInSession` 的提示词闸门。
+- `src/index.js`：`warnIfBillionContextUnarmed()`（启动时一次，仅 bili 在场且没开自动折叠时）。
+- 配置：`agent.session_budget_mb`（默认 8）、`agent.prompt_max_kb`（默认 512）。
+
+**做法（再遇到"后台 agent + 折叠代理"这类组合）**：
+
+1. **先确认代理按什么认身份**：这类代理多半按 system prompt（或首条消息）认，换 provider 不解决问题。
+   读它的实现/元数据，别按直觉写结论——我第一版就写成了「provider 身份 + system prompt」并据此给了错误建议。
+2. **把折叠武装起来**：`compress.externalSummary.enabled + autoFold + targets`。开了它，超窗时先折叠
+   再送；不开就只能 fail-fast 413，而且这个失败发生在插件看不见的地方。
+3. **给会话设体积上限**，别指望外部折叠永远成功：会话一旦超过模型窗口，每条新请求都必然失败，
+   而失败发生在插件看不见的地方，表现为"agent 处理失败 → 重试 → 再失败"的死循环。
+   换代（归档 + 新建）是唯一在插件控制范围内的自愈手段。
+4. **单条提示词也要设闸**：巨长邮件正文/上万封的存档清单能在**一条请求内**超窗，这跟历史长度无关。
+5. **改 system prompt 是有代价的**：装/卸插件、改工具集、甚至代理自己往 system prompt 里注入说明
+   （bili 就会注入压缩工具说明、marker 完整性说明、generation-boundary 说明），都可能让会话中途换车道。
+   大改动尽量放在会话开始前，或者接受"折叠需要重建"这件事。
+6. **不要用"删会话文件"修 413**：会话日志是 DSH 的内存 + 磁盘双写，进程退出时会把旧尾巴追加回去；
+   而且裁剪过的 seq 一旦对不上，会话会直接从侧边栏消失（本次的第二个事故）。
+

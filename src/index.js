@@ -37,6 +37,7 @@ import {
 import { renderHtmlPreview, createProcessRunner } from './render.js';
 import { buildMailPreset, mailPresetSignature, MAIL_PRESET_ID } from './preset.js';
 import { loadHost } from './host.js';
+import { detectBillionContext, billionContextFoldVerdict, readBillionContextConfig } from './budget.js';
 import { registerUiRoute, statusSnapshot, saveParams, savePrompts, writeConfigScalar } from './uiapi.js';
 import * as mailSources from './sources/index.js';
 import * as oauth2Source from './sources/oauth2.js';
@@ -1352,6 +1353,10 @@ export function apply(ctx, config = {}) {
         getOpenerPrompt: () => state.cfg?.agent?.openerPrompt ?? '',
         // 静默模式（默认关）：父会话以 origin=subagent 创建、不挂工作区，不归档
         getSilent: () => state.cfg?.agent?.silent === true,
+        // 会话体积预算（MB，0 = 不限制）：父会话/每日会话超过它就归档换代
+        getSessionBudgetMb: () => state.cfg?.agent?.sessionBudgetMb ?? 8,
+        // 单条提示词的字节上限（KB，0 = 不限制）：超过就拒绝发送
+        getPromptMaxKb: () => state.cfg?.agent?.promptMaxKb ?? 512,
       });
     }
     if (!state.notifier) state.notifier = new QQNotifier({ ctx, cfg: state.cfg, logger: log });
@@ -2557,6 +2562,31 @@ export function apply(ctx, config = {}) {
     await state.runner?.ready?.();
     await state.runner?.cleanupChildren?.();
     await state.runner?.ensureParent?.(current.agent.workspace);
+    warnIfBillionContextUnarmed();
+  }
+
+  /**
+   * 提醒「装了 billion-context，但折叠没武装」。
+   *
+   * bili 的车道身份是「会话 id + system prompt 哈希」，system prompt 一变就开一条零折叠的新
+   * 车道；只有在 `compress.externalSummary.enabled + autoFold` 打开时，它才会在超窗时先折叠
+   * 再送，否则直接 fail-fast 成 413（2026-11-07 的 19.5 MB / 413 事故，详见 docs/lessons.md）。
+   * 没装 bili 的人不该看到这条，装了就提示一次。
+   *
+   * 探测/读配置失败一律静默：这只是提示，不能因为读不到别人的目录就影响启动。
+   */
+  let billionContextWarned = false;
+  function warnIfBillionContextUnarmed() {
+    if (billionContextWarned) return;
+    billionContextWarned = true;
+    try {
+      const biliPresent = detectBillionContext();
+      if (!biliPresent) return;
+      const verdict = billionContextFoldVerdict({ biliPresent, config: readBillionContextConfig() });
+      if (verdict.needed) log.warn(`[mail-automation] ${verdict.reason}`);
+    } catch {
+      // 提示失败不影响启动
+    }
   }
 
   /**

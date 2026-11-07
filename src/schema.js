@@ -243,6 +243,20 @@ export const Config = Schema.object({
       .description(
         '静默处理：父会话以 origin=subagent 创建，不挂工作区、不进侧边栏、不归档；下次启动时工作区/silent 没变就沿用上次的父会话，变了才归档旧会话并新建。默认关，重启生效',
       ),
+    sessionBudgetMb: Schema.number()
+      .min(0)
+      .step(1)
+      .default(8)
+      .description(
+        '单个会话（父会话 / 每日会话）累计事件的字节上限（MB）：超过就在启动或换日时归档旧会话并新建，避免会话无界增长把请求撑爆（bili 之类的折叠代理会因此 413）。0 = 不限制',
+      ),
+    promptMaxKb: Schema.number()
+      .min(0)
+      .step(16)
+      .default(512)
+      .description(
+        '单条提示词的字节上限（KB）：超过就拒绝发送并把这封记为失败（不送注定 413 的请求）。0 = 不限制',
+      ),
   }).description('agent 运行方式'),
   credentials: Schema.object({
     secretRetrySeconds: Schema.number()

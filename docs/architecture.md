@@ -2,7 +2,7 @@
 
 > 面向维护者。安装/配置/排障见 [README](../README.md) 与 [operations.md](operations.md)；
 > 工具与 HTTP API 见 [api.md](api.md)；上一任留下的踩坑经验见 [lessons.md](lessons.md)。
-> 基线：插件 `1.0.0`、宿主 `dsh 0.2.1-rc.3`。
+> 基线：插件 `1.1.0`、宿主 `dsh 0.2.1-rc.3`。
 
 ## 1. 一句话
 
@@ -66,7 +66,7 @@ agentDefaultModel` 全部走 `ctx.get()` 探测。
 | `src/sources-config.js` | 来源增删改：覆盖层 YAML 读写、整表校验、编辑保留密码 | `upsertSource` `removeSource` `overlaySourceIds` |
 | `src/archiveadmin.js` | 批量存档：列 id/字段/conclusion、按 id 或全量清理（含 retries 清理） | `listArchives` `clearArchives` `ARCHIVE_LIST_FIELDS` |
 | `src/tools.js` | 7 个 agent 工具（含两个批量存档工具） | `registerTools` |
-| `src/agent.js` | 父会话/子智能体、preset 挂载、开局回合、取消与超时、归档 | `MailAgentRunner`、`openerRoundProduced` |
+| `src/agent.js` | 父会话/子智能体、preset 挂载、开局回合、取消与超时、归档、**会话体积预算** | `MailAgentRunner`、`openerRoundProduced` |
 | `src/config.js` | 路径展开、来源规范化、merge/canonicalize、提示词、模板、clock、volatile 解包 | `normalizeConfig` `mergeConfig` `deepUnwrap` `derivedSourceId` |
 | `src/schema.js` | Schemastery `Config`（唯一"可调参数"清单） | `Config`、`Source` |
 | `src/defaults.js` | 三段模型可见文本的默认值 | `DEFAULT_MAIL_PROMPT` / `DEFAULT_OPENER_PROMPT` / `DEFAULT_DIGEST_PROMPT` |
@@ -75,6 +75,7 @@ agentDefaultModel` 全部走 `ctx.get()` 探测。
 | `src/fsutil.js` | 原子写（同目录 tmp → rename → 有界重试 → 绝不 copy） | `atomicWriteFile` |
 | `src/credentials.js` | 凭据缝 `ctx.credentials` + 单点文件兜底 | `resolveSecret` `resolveSourceSecretsDetailed` `CREDENTIAL_FALLBACK_LAYER` |
 | `src/host.js` | 宿主模块桥（裸 import `dsh-llm/session/tools/brand`）+ 失败诊断 | `loadHost` |
+| `src/budget.js` | 会话/提示词的体积预算与 bili 折叠状态检测（纯函数） | `sessionFootprint` `evaluateSessionBudget` `evaluatePromptBudget` `detectBillionContext` `readBillionContextConfig` `billionContextFoldVerdict` |
 | `src/tools.js` | 7 个工具（定义 + `output.render` + 取消语义） | `registerTools` |
 | `src/archiveread.js` | 存档读取 + 越界防护 + 链接主机汇总 + 分片枚举 | `readArchivedMail` `isInsideArchive` `linkHosts` |
 | `src/render.js` | HTML 消毒 + CSP 外壳 + 无头 Chromium 整页/切片截图（走 `ctx.subprocess`） | `sanitizeEmailHtml` `isDangerousUrl` `renderHtmlPreview` |
@@ -186,6 +187,21 @@ agentDefaultModel` 全部走 `ctx.get()` 探测。
   **不要**传 `{kind:'disposed'}`。
 - **两个坑**：`agentOptions` 缺 model 时宿主会静默死轮（`unfixed-issues` #17）→ 用 `agentDefaultModel.currentSelection()`
   + 有界等待（10 s，失败冷却 5 min）；`{{model}}` 无值会让整轮装配失败。
+- **会话体积预算**（`src/budget.js`）：父会话跨重启 resume、定时任务每跑一次都往里加事件，没有天然上限。
+  `agent.sessionBudgetMb`（默认 8 MB）一超，`ensureParent` 就归档旧父会话、`spawn` 一代新的；
+  `sessionMode: daily` 同理（`runInner` 里换掉当天的会话）。测的是 `snapshotEvents()` 逐条
+  `JSON.stringify` 的字节和——量级够用，且不会构造一个巨大的中间字符串。**为什么要有**：
+  会话长到超出模型窗口后，每一条新请求都注定失败，而失败发生在宿主/上游，插件只看到"agent 处理失败"，
+  会把它当成邮件的问题重试三遍。8 MB 这个默认值取自"窗口 792,576 tokens × 7.5 B/token ≈ 5.9 MB"的保守余量。
+- **提示词闸门**：`runInSession` 发送前检查 `agent.promptMaxKb`（默认 512 KB）。一封巨长的邮件、
+  或一条列了上万封的存档清单，可能在单条请求里就超窗；拒绝发送并抛错，走既有的"失败占位 + 重试"路径，
+  用户能看到真实原因而不是一个 413。
+- **bili 折叠没武装的提醒**：本机装着 `billion-context` 时（只探测数据目录、只读它的 config，不执行它），
+  若它没开 `compress.externalSummary.enabled + autoFold + targets`，启动时打一条 WARN。bili 的车道身份是
+  「会话 id + system prompt 的 sha256 前 16 位」，**system prompt 一变就开一条零折叠的新车道**，而这条车道
+  不继承原车道的折叠块；没开 autoFold 时，超窗请求会被 fail-fast 判 413，不会先折叠再送。这正是 2026-11-07
+  那次 19.5 MB / 413 事故的两环（详见 `docs/lessons.md` §26）。注意提醒里**不含**「换 provider 就能隔离」——
+  provider/model 不参与车道哈希，换 key 只分隔配额。判定函数是 `billionContextFoldVerdict`。
 
 ## 8. 状态与存档持久化
 

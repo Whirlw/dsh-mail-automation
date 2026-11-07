@@ -1,6 +1,6 @@
 {
   "name": "dsh-mail-automation",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DSH 邮件自动化：轮询 IMAP / POP3 / OAuth2 / Gmail / Graph 邮箱，逐封交给受限 agent 按提示词处理；可配置 QQ 提醒与自定义定时任务（每日/每周/每月/间隔/启动）。",
   "type": "module",
   "main": "src/index.js",

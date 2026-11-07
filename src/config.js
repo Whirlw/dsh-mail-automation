@@ -562,6 +562,15 @@ export function normalizeConfig(raw, { dshHome, configFile, secrets = {} } = {})
       const raw = agentRaw.silent;
       return raw === undefined || raw === null || raw === '' ? false : asBool(raw, false);
     })(),
+    // 会话体积预算（MB）/ 单条提示词上限（KB）：0 = 显式关闭，所以不能用 pick() 把 0 当"没写"
+    sessionBudgetMb: Math.max(
+      0,
+      asNumber(agentRaw.sessionBudgetMb !== undefined ? agentRaw.sessionBudgetMb : agentRaw.session_budget_mb, 8),
+    ),
+    promptMaxKb: Math.max(
+      0,
+      asNumber(agentRaw.promptMaxKb !== undefined ? agentRaw.promptMaxKb : agentRaw.prompt_max_kb, 512),
+    ),
   };
 
   const credentials = {
@@ -777,6 +786,13 @@ export function canonicalizeConfig(raw) {
       ? { openerPrompt: agent.opener_prompt }
       : {}),
     ...(agent.tool_set !== undefined && agent.tools === undefined ? { tools: agent.tool_set } : {}),
+    // 体积预算两项：snake 形式在 YAML/设置页出现，camel 形式在内核；两边都要能读
+    ...(agent.session_budget_mb !== undefined && agent.sessionBudgetMb === undefined
+      ? { sessionBudgetMb: agent.session_budget_mb }
+      : {}),
+    ...(agent.prompt_max_kb !== undefined && agent.promptMaxKb === undefined
+      ? { promptMaxKb: agent.prompt_max_kb }
+      : {}),
   };
   out.render = {
     ...render,
